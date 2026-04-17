@@ -404,7 +404,7 @@ export default function EksporPage() {
 
                 <div>
                   <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Unduh ZIP ({selectedRombelIds.size} rombel dipilih)
+                    Unduh semua ({selectedRombelIds.size} rombel dipilih)
                   </p>
                   <div className="grid grid-cols-3 gap-2">
                     <Button
@@ -413,8 +413,8 @@ export default function EksporPage() {
                       variant="outline"
                       className="gap-2"
                     >
-                      <Package className="h-4 w-4" aria-hidden="true" />
-                      ZIP PDF
+                      <FileText className="h-4 w-4" aria-hidden="true" />
+                      Semua PDF
                     </Button>
                     <Button
                       onClick={() => handleDownloadBatch('excel')}
@@ -423,7 +423,7 @@ export default function EksporPage() {
                       className="gap-2"
                     >
                       <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
-                      ZIP Excel
+                      Semua Excel
                     </Button>
                     <Button
                       onClick={() => handleDownloadBatch('both')}
@@ -431,8 +431,8 @@ export default function EksporPage() {
                       variant="outline"
                       className="gap-2"
                     >
-                      <Download className="h-4 w-4" aria-hidden="true" />
-                      ZIP Semua
+                      <Package className="h-4 w-4" aria-hidden="true" />
+                      PDF + Excel
                     </Button>
                   </div>
                 </div>
