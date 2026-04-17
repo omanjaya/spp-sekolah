@@ -12,7 +12,7 @@ import {
   UserPlus,
   XCircle,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/layouts/page-header';
@@ -50,6 +50,7 @@ export default function ImportPembayaranPage() {
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [selections, setSelections] = useState<SelectionState>({});
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const previewRef = useRef<HTMLDivElement>(null);
 
   const previewMut = usePreviewExcel();
   const confirmMut = useConfirmImport();
@@ -63,6 +64,9 @@ export default function ImportPembayaranPage() {
       const res = await previewMut.mutateAsync(file);
       setPreview(res);
       setSelections(defaultSelections(res));
+      setTimeout(() => {
+        previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
     } catch (err) {
       toast.error(err instanceof HttpError ? err.message : 'Gagal memproses file.');
     }
@@ -182,7 +186,7 @@ export default function ImportPembayaranPage() {
       </Card>
 
       {preview ? (
-        <>
+        <div ref={previewRef}>
           {preview.alreadyImported ? (
             <div className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
               <ShieldAlert className="mt-0.5 h-5 w-5" aria-hidden="true" />
@@ -364,7 +368,7 @@ export default function ImportPembayaranPage() {
             onConfirm={onConfirm}
             isLoading={confirmMut.isPending}
           />
-        </>
+        </div>
       ) : null}
     </div>
   );

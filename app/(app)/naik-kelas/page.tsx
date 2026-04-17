@@ -11,7 +11,7 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/layouts/page-header';
@@ -530,6 +530,7 @@ export default function NaikKelasPage() {
   const [preview, setPreview] = useState<NaikKelasPreviewResult | null>(null);
   const [actions, setActions] = useState<ActionState>({});
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const previewRef = useRef<HTMLDivElement>(null);
 
   const { data: tahunAjaranList, isLoading: loadingTahun } = useTahunAjaranList();
   const previewMut = usePreviewNaikKelas();
@@ -552,6 +553,9 @@ export default function NaikKelasPage() {
       const res = await previewMut.mutateAsync({ file, tahunAjaranId });
       setPreview(res);
       setActions(defaultActions(res.rows));
+      setTimeout(() => {
+        previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
     } catch (err) {
       toast.error(err instanceof HttpError ? err.message : 'Gagal menganalisis file.');
     }
@@ -674,7 +678,7 @@ export default function NaikKelasPage() {
       </Card>
 
       {preview && rowsByTab ? (
-        <>
+        <div ref={previewRef} className="space-y-6">
           {/* Section 2: Preview */}
           <Card className="border-slate-200">
             <CardHeader>
@@ -791,7 +795,7 @@ export default function NaikKelasPage() {
             onConfirm={onConfirm}
             isLoading={confirmMut.isPending}
           />
-        </>
+        </div>
       ) : null}
     </div>
   );
