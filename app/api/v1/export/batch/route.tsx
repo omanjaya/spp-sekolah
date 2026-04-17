@@ -195,20 +195,24 @@ export const POST = apiHandler(async (req: NextRequest) => {
   }
 
   // ─── Both: ZIP (PDF + Excel gabisa jadi 1 file) ──────────
+  // Build matrix data ONCE, reuse for both PDF and Excel.
   const zip = new JSZip()
   let angkatan = filter.angkatan
 
-  // Build merged PDF
   const allGroups: MatrixRombelGroup[] = []
   let periods: MatrixData['periods'] | undefined
+  const perRombelData: Array<{ rombel: typeof rombels[number]; data: MatrixData }> = []
+
   for (const r of rombels) {
     const angk = angkatan ?? (await resolveAngkatanForRombel(r.id))
     if (!angkatan) angkatan = angk
     const data = await buildMatrix({ angkatan: angk, rombelId: r.id })
     if (!periods) periods = data.periods
     allGroups.push(...data.rombels)
+    perRombelData.push({ rombel: r, data })
   }
 
+  // PDF
   if (periods && allGroups.length > 0) {
     const mergedData: MatrixData = {
       angkatan: angkatan!,
@@ -222,12 +226,10 @@ export const POST = apiHandler(async (req: NextRequest) => {
     zip.file(buildFileName('pdf', rombels, angkatan), new Uint8Array(pdfBuf))
   }
 
-  // Build merged Excel
+  // Excel — reuse cached perRombelData
   const wb = new ExcelJS.Workbook()
   wb.creator = 'Sistem Pembayaran SPP'
-  for (const r of rombels) {
-    const angk = angkatan ?? (await resolveAngkatanForRombel(r.id))
-    const data = await buildMatrix({ angkatan: angk, rombelId: r.id })
+  for (const { rombel: r, data } of perRombelData) {
     const label = formatRombelLabel(r.grade, r.nomor)
     const rWb = await buildRekapExcel(data, school)
     for (const srcSheet of rWb.worksheets) {
@@ -263,10 +265,7 @@ export const POST = apiHandler(async (req: NextRequest) => {
   })
 
   const zipName = buildFileName('zip', rombels, angkatan)
-  const ab = new ArrayBuffer(zipBytes.byteLength)
-  new Uint8Array(ab).set(zipBytes)
-
-  return new NextResponse(new Blob([ab], { type: 'application/zip' }), {
+  return new NextResponse(Buffer.from(zipBytes), {
     status: 200,
     headers: {
       'Content-Type': 'application/zip',

@@ -11,6 +11,8 @@ import type {
   PembayaranManualCreateInput,
   PembayaranUpdateInput,
 } from '@/lib/validators/pembayaran.schema'
+import logger from '@/lib/logger'
+import { performance } from 'perf_hooks'
 
 export interface PembayaranSiswaSummary {
   id: string
@@ -292,6 +294,7 @@ const listInclude = {
 
 export const pembayaranService = {
   async list(filter: PembayaranFilterInput): Promise<PembayaranListResult> {
+    const start = performance.now()
     const page = filter.page ?? PAGINATION.DEFAULT_PAGE
     const limit = filter.limit ?? PAGINATION.DEFAULT_LIMIT
     const skip = (page - 1) * limit
@@ -310,6 +313,13 @@ export const pembayaranService = {
       prisma.pembayaran.count({ where }),
       prisma.pembayaran.aggregate({ where, _sum: { amount: true, biayaAdm: true } }),
     ])
+
+    const duration = performance.now() - start
+    logger.info({ duration, operation: 'list', page, limit, total }, 'pembayaran.list')
+
+    if (duration > 2000) {
+      logger.warn({ duration, operation: 'list', page, limit, total }, 'pembayaran.list: slow')
+    }
 
     return {
       items: items.map(toDto),

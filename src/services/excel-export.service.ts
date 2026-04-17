@@ -10,6 +10,8 @@ import {
 } from '@/services/matrix-data.service'
 import { prisma } from '@/lib/db'
 import type { SchoolInfo } from '@/lib/pdf/matrix-document'
+import logger from '@/lib/logger'
+import { performance } from 'perf_hooks'
 
 const DEFAULT_SCHOOL: SchoolInfo = {
   namaSekolah: 'SMAN 1 DENPASAR',
@@ -36,6 +38,7 @@ export async function generateExcelForRombel(
   rombelId: string,
   school?: SchoolInfo,
 ): Promise<{ buffer: Uint8Array; fileName: string }> {
+  const start = performance.now()
   const angkatan = await resolveAngkatanForRombel(rombelId)
   const data = await buildMatrix({ angkatan, rombelId })
   const s = school ?? (await getSchoolInfo())
@@ -45,6 +48,14 @@ export async function generateExcelForRombel(
   const fileName = rombel
     ? `Komite_${angkatan}_${formatRombelLabel(rombel.grade, rombel.nomor)}.xlsx`
     : `Komite_${angkatan}_${rombelId}.xlsx`
+
+  const duration = performance.now() - start
+  logger.info({ duration, operation: 'export', type: 'rombel', rombelId, angkatan }, 'excel.export')
+
+  if (duration > 2000) {
+    logger.warn({ duration, operation: 'export', type: 'rombel', rombelId, angkatan }, 'excel.export: slow')
+  }
+
   return {
     buffer: new Uint8Array(buffer as ArrayBuffer),
     fileName,
@@ -55,10 +66,19 @@ export async function generateExcelForAngkatan(
   angkatan: number,
   school?: SchoolInfo,
 ): Promise<{ buffer: Uint8Array; fileName: string }> {
+  const start = performance.now()
   const data = await buildMatrix({ angkatan })
   const s = school ?? (await getSchoolInfo())
   const wb = await buildRekapExcel(data, s)
   const buffer = await wb.xlsx.writeBuffer()
+
+  const duration = performance.now() - start
+  logger.info({ duration, operation: 'export', type: 'angkatan', angkatan }, 'excel.export')
+
+  if (duration > 2000) {
+    logger.warn({ duration, operation: 'export', type: 'angkatan', angkatan }, 'excel.export: slow')
+  }
+
   return {
     buffer: new Uint8Array(buffer as ArrayBuffer),
     fileName: `Komite_${angkatan}_semua.xlsx`,

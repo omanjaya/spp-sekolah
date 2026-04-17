@@ -219,11 +219,16 @@ export const siswaService = {
 
     // Upsert per row dalam transaksi agar semua berhasil / rollback
     await prisma.$transaction(async (tx) => {
+      // Batch lookup: satu query untuk semua NIS sekaligus
+      const allNis = input.items.map((item) => item.nis)
+      const existingList = await tx.siswa.findMany({ where: { nis: { in: allNis } } })
+      const existingMap = new Map(existingList.map((s) => [s.nis, s]))
+
       for (let i = 0; i < input.items.length; i++) {
         const raw = input.items[i]
         if (!raw) continue
         try {
-          const existing = await tx.siswa.findUnique({ where: { nis: raw.nis } })
+          const existing = existingMap.get(raw.nis)
           if (existing) {
             await tx.siswa.update({
               where: { id: existing.id },

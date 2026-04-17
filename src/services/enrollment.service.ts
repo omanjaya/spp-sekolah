@@ -115,26 +115,35 @@ export const enrollmentService = {
     }
 
     await prisma.$transaction(async (tx) => {
+      // Batch lookup: satu query untuk semua siswa sekaligus
+      const allSiswaIds = input.items.map((item) => item.siswaId)
+      const siswaList = await tx.siswa.findMany({ where: { id: { in: allSiswaIds } } })
+      const siswaMap = new Map(siswaList.map((s) => [s.id, s]))
+
+      // Batch lookup: satu query untuk semua enrollment yang ada sekaligus
+      const enrollmentList = await tx.enrollment.findMany({
+        where: {
+          siswaId: { in: allSiswaIds },
+          tahunAjaranId: input.tahunAjaranId,
+        },
+      })
+      const enrollmentMap = new Map(
+        enrollmentList.map((e) => [`${e.siswaId}-${e.tahunAjaranId}`, e]),
+      )
+
       for (let i = 0; i < input.items.length; i++) {
         const item = input.items[i]
         if (!item) continue
         try {
           // Cek siswa ada
-          const siswa = await tx.siswa.findUnique({ where: { id: item.siswaId } })
+          const siswa = siswaMap.get(item.siswaId)
           if (!siswa) {
             result.errors.push({ row: i + 1, message: 'Siswa tidak ditemukan.', data: item })
             result.skipped += 1
             continue
           }
 
-          const existing = await tx.enrollment.findUnique({
-            where: {
-              siswaId_tahunAjaranId: {
-                siswaId: item.siswaId,
-                tahunAjaranId: input.tahunAjaranId,
-              },
-            },
-          })
+          const existing = enrollmentMap.get(`${item.siswaId}-${input.tahunAjaranId}`)
 
           if (existing) {
             if (existing.rombelId === input.rombelId) {

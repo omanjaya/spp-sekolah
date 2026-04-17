@@ -25,6 +25,7 @@ services:
       NEXTAUTH_SECRET: "dev-secret-please-change-in-production-abcdef123456"
       NODE_ENV: development
       LOG_LEVEL: debug
+      NODE_OPTIONS: "--max-old-space-size=2048"
       # macOS bind-mount file watching
       CHOKIDAR_USEPOLLING: "true"
       WATCHPACK_POLLING: "true"
@@ -42,7 +43,7 @@ services:
       echo '[boot] seeding (idempotent)...' &&
       npx tsx prisma/seed.ts &&
       echo '[boot] starting next dev...' &&
-      exec npm run dev -- -p 3000 -H 0.0.0.0
+      exec npx next dev --turbopack -p 3000 -H 0.0.0.0
       "
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]

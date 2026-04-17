@@ -121,6 +121,8 @@ model Enrollment {
 
   @@unique([siswaId, tahunAjaranId])
   @@index([rombelId])
+  @@index([siswaId])
+  @@index([tahunAjaranId])
 }
 
 // ─── Payments ──────────────────────────────────────────────
@@ -149,6 +151,7 @@ model Pembayaran {
   @@index([periodYear, periodMonth])
   @@index([tanggalTransaksi])
   @@index([kodeCabang])
+  @@index([siswaId, periodYear, periodMonth, statusBayar])
 }
 
 enum StatusBayar {
@@ -179,6 +182,7 @@ model Keringanan {
 
   @@unique([siswaId, periodYear, periodMonth])
   @@index([periodYear, periodMonth])
+  @@index([siswaId, periodYear, periodMonth])
 }
 
 enum JenisKeringanan {
@@ -208,6 +212,7 @@ model Pelunasan {
   siswa Siswa @relation(fields: [siswaId], references: [id], onDelete: Restrict)
 
   @@index([siswaId])
+  @@index([siswaId, tanggalLunas])
 }
 
 // ─── Import & Audit ───────────────────────────────────────

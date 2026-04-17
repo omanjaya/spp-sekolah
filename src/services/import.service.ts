@@ -16,6 +16,9 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { performance } from 'perf_hooks'
+
+import { LRUCache } from 'lru-cache'
 
 import type { Grade, Pembayaran, Prisma } from '@prisma/client'
 
@@ -26,6 +29,7 @@ import { ValidationError } from '@/core/errors'
 import type { ImportSelection } from '@/lib/validators/import.schema'
 import { parseAsikWorkbook, type ParsedRow, type ParseResult } from '@/lib/excel/asik-parser'
 import { parsePembayaranPaste } from '@/lib/paste/pembayaran-parser'
+import logger from '@/lib/logger'
 
 export type RowStatus =
   | 'BARU'
@@ -96,20 +100,23 @@ interface CacheEntry {
   source: 'IMPORT_EXCEL' | 'PASTE_SPREADSHEET'
 }
 
+// Helper type for cache values (without batchId/createdAt/expiresAt since they're managed by LRU)
+type CacheValue = Omit<CacheEntry, 'batchId' | 'createdAt' | 'expiresAt'>
+
 const CACHE_TTL_MS = 15 * 60 * 1000
-type CacheStore = Map<string, CacheEntry>
 
-// Persist the cache across Next.js dev HMR reloads via globalThis.
-const globalForCache = globalThis as unknown as { __importPreviewCache?: CacheStore }
-const cache: CacheStore = globalForCache.__importPreviewCache ?? new Map<string, CacheEntry>()
-if (!globalForCache.__importPreviewCache) {
-  globalForCache.__importPreviewCache = cache
-}
+// LRU cache with max 50 entries and 15-minute TTL
+// No need for globalThis hack — LRUCache handles persistence correctly
+const cache = new LRUCache<string, Omit<CacheEntry, 'batchId' | 'createdAt' | 'expiresAt'>>({
+  max: 50,
+  ttl: CACHE_TTL_MS,
+  updateAgeOnGet: true,
+  updateAgeOnHas: true,
+})
 
-function sweep(now: number): void {
-  for (const [k, v] of cache) {
-    if (v.expiresAt <= now) cache.delete(k)
-  }
+function sweep(): void {
+  // LRUCache handles TTL automatically — no manual sweep needed
+  // This function is kept for API compatibility but does nothing
 }
 
 function pickStatus(
@@ -285,7 +292,8 @@ export const importService = {
     parse: ParseResult,
     source: CacheEntry['source'],
   ): Promise<PreviewResult> {
-    sweep(Date.now())
+    const start = performance.now()
+    sweep()
 
     const { rows, counts } = await analyzeParseResult(parse, source)
 
@@ -297,9 +305,6 @@ export const importService = {
     const batchId = randomUUID()
     const now = Date.now()
     cache.set(batchId, {
-      batchId,
-      createdAt: now,
-      expiresAt: now + CACHE_TTL_MS,
       fileHash: parse.fileHash,
       fileName: parse.fileName,
       fileSize: parse.fileSize,
@@ -308,6 +313,13 @@ export const importService = {
       parseErrors: parse.errors,
       source,
     })
+
+    const duration = performance.now() - start
+    logger.info({ duration, operation: 'preview', source: source, fileName: parse.fileName, totalRows: parse.totalRows }, 'import.preview')
+
+    if (duration > 2000) {
+      logger.warn({ duration, operation: 'preview', source: source, fileName: parse.fileName }, 'import.preview: slow')
+    }
 
     return {
       batchId,
@@ -346,8 +358,9 @@ export const importService = {
     createdSiswa: number
     errors: Array<{ rowIndex: number; message: string }>
   }> {
+    const start = performance.now()
     const entry = cache.get(batchId)
-    if (!entry || entry.expiresAt <= Date.now()) {
+    if (!entry) {
       throw new ValidationError('Preview sudah kedaluwarsa. Silakan upload ulang file.')
     }
 
@@ -635,6 +648,13 @@ export const importService = {
 
     // Invalidate preview cache so the same batchId can't be reused.
     cache.delete(batchId)
+
+    const duration = performance.now() - start
+    logger.info({ duration, operation: 'confirm', source: sourceLabel, success: result.success, skipped: result.skipped, replaced: result.replaced, rolledForward: result.rolledForward, createdSiswa: result.createdSiswa, errors: result.errors.length }, 'import.confirm')
+
+    if (duration > 2000) {
+      logger.warn({ duration, operation: 'confirm', source: sourceLabel, selectionCount: selections.length }, 'import.confirm: slow')
+    }
 
     return {
       batchId,

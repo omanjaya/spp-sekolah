@@ -3,7 +3,7 @@
 import { ClipboardPaste, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import type { ColumnDef } from '@tanstack/react-table';
 
@@ -39,20 +39,28 @@ const ANGKATAN_OPTIONS = Array.from({ length: 6 }).map((_, i) => CURRENT_YEAR - 
 export default function SiswaListPage() {
   const router = useRouter();
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [angkatan, setAngkatan] = useState<string>('ALL');
   const [status, setStatus] = useState<string>('ALL');
   const [page, setPage] = useState(1);
   const [pendingDelete, setPendingDelete] = useState<SiswaDTO | null>(null);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
   const filter: Partial<SiswaFilterInput> = useMemo(
     () => ({
-      search: search.trim() || undefined,
+      search: debouncedSearch.trim() || undefined,
       angkatan: angkatan !== 'ALL' ? Number(angkatan) : undefined,
       status: (status !== 'ALL' ? (status as SiswaFilterInput['status']) : undefined),
       page,
       limit: 20,
     }),
-    [search, angkatan, status, page],
+    [debouncedSearch, angkatan, status, page],
   );
 
   const { data, isLoading } = useSiswaList(filter);

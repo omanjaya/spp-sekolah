@@ -20,7 +20,7 @@
  *  3. Pembayaran TERBAYAR — LUNAS with tanggalTransaksi
  *  4. Otherwise BELUM
  *
- * An in-memory TTL cache (60s) keyed by (angkatan, rombelId?) avoids rebuilding
+ * An in-memory TTL cache (300s) keyed by (angkatan, rombelId?) avoids rebuilding
  * during export/preview bursts. Consumers should invalidate by calling
  * `invalidateMatrixCache()` after any write that could affect the matrix.
  */
@@ -29,6 +29,8 @@ import type { Grade, JenisKeringanan, Prisma } from '@prisma/client'
 
 import { prisma } from '@/lib/db'
 import { NotFoundError, ValidationError } from '@/core/errors'
+import logger from '@/lib/logger'
+import { performance } from 'perf_hooks'
 
 export type MatrixCellStatus =
   | 'LUNAS'
@@ -111,7 +113,7 @@ const MONTH_LABELS_SHORT = [
   'Des',
 ] as const
 
-const CACHE_TTL_MS = 60_000
+const CACHE_TTL_MS = 300_000
 
 // ─── Cache ─────────────────────────────────────────────────
 type CacheEntry = { builtAt: number; data: MatrixData }
@@ -179,61 +181,12 @@ function mapKeringananToStatus(jenis: JenisKeringanan): MatrixCellStatus {
 
 // ─── Query ─────────────────────────────────────────────────
 async function fetchRombels(angkatan: number, rombelId?: string) {
-  const where: Prisma.RombelWhereInput = {
-    enrollments: {
-      some: { siswa: { angkatan } },
-    },
-    ...(rombelId ? { id: rombelId } : {}),
-  }
-  return prisma.rombel.findMany({
-    where,
-    include: {
-      tahunAjaran: true,
-      enrollments: {
-        where: { siswa: { angkatan } },
-        include: { siswa: true },
-        orderBy: [{ noAbsen: 'asc' }, { siswa: { nama: 'asc' } }],
-      },
-    },
-    orderBy: [{ grade: 'asc' }, { nomor: 'asc' }],
-  })
-}
-
-// ─── Public API ────────────────────────────────────────────
-export async function buildMatrix(opts: BuildMatrixOptions): Promise<MatrixData> {
-  const { angkatan, rombelId } = opts
-
-  if (!Number.isInteger(angkatan) || angkatan < 2000 || angkatan > 2100) {
-    throw new ValidationError('Parameter angkatan tidak valid.', {
-      angkatan: ['Harus bilangan bulat tahun masuk yang valid.'],
-    })
-  }
-
-  const key = cacheKey(angkatan, rombelId)
-  const hit = cache.get(key)
-  if (hit && Date.now() - hit.builtAt < CACHE_TTL_MS) {
-    return hit.data
-  }
-
-  const rombels = await fetchRombels(angkatan, rombelId)
-
-  if (rombelId && rombels.length === 0) {
-    throw new NotFoundError('Rombel tidak ditemukan atau tidak memiliki siswa dengan angkatan tersebut.')
-  }
-
+  // Build periods for filtering
   const periods = buildPeriodsForAngkatan(angkatan)
-
-  // Collect all siswaIds across requested rombels.
-  const siswaIds: string[] = []
-  for (const r of rombels) {
-    for (const e of r.enrollments) siswaIds.push(e.siswaId)
-  }
-
-  // Periods bound for WHERE (only pull pembayaran/keringanan in the 36-month
-  // window to keep payloads small).
   const minPeriod = periods[0]
   const maxPeriod = periods[periods.length - 1]
 
+  // Period filter for pembayaran and keringanan
   const periodFilter: Prisma.PembayaranWhereInput | undefined = minPeriod && maxPeriod
     ? {
         OR: [
@@ -253,78 +206,150 @@ export async function buildMatrix(opts: BuildMatrixOptions): Promise<MatrixData>
       }
     : undefined
 
-  const [pembayarans, keringanans, pelunasans] =
-    siswaIds.length === 0
-      ? [[], [], []]
-      : await Promise.all([
-          prisma.pembayaran.findMany({
-            where: {
-              siswaId: { in: siswaIds },
-              statusBayar: 'TERBAYAR',
-              ...(periodFilter ? periodFilter : {}),
+  const where: Prisma.RombelWhereInput = {
+    enrollments: {
+      some: { siswa: { angkatan } },
+    },
+    ...(rombelId ? { id: rombelId } : {}),
+  }
+
+  return prisma.rombel.findMany({
+    where,
+    select: {
+      id: true,
+      kode: true,
+      grade: true,
+      nomor: true,
+      waliKelas: true,
+      tahunAjaran: {
+        select: {
+          id: true,
+          kode: true,
+          tahunMulai: true,
+          tahunAkhir: true,
+        },
+      },
+      enrollments: {
+        where: { siswa: { angkatan } },
+        select: {
+          noAbsen: true,
+          siswa: {
+            select: {
+              id: true,
+              nis: true,
+              nama: true,
+              pembayarans: {
+                where: {
+                  statusBayar: 'TERBAYAR',
+                  ...(periodFilter ? periodFilter : {}),
+                },
+                select: {
+                  periodYear: true,
+                  periodMonth: true,
+                  tanggalTransaksi: true,
+                  amount: true,
+                  statusBayar: true,
+                },
+              },
+              keringanans: {
+                where: periodFilter
+                  ? (periodFilter as unknown as Prisma.KeringananWhereInput)
+                  : undefined,
+                select: {
+                  periodYear: true,
+                  periodMonth: true,
+                  jenis: true,
+                  persentase: true,
+                },
+              },
+              pelunasans: {
+                select: {
+                  periodeMulai: true,
+                  periodeAkhir: true,
+                  tanggalLunas: true,
+                },
+              },
             },
-          }),
-          prisma.keringanan.findMany({
-            where: {
-              siswaId: { in: siswaIds },
-              ...(periodFilter
-                ? (periodFilter as unknown as Prisma.KeringananWhereInput)
-                : {}),
-            },
-          }),
-          prisma.pelunasan.findMany({
-            where: { siswaId: { in: siswaIds } },
-          }),
-        ])
+          },
+        },
+        orderBy: [{ noAbsen: 'asc' }, { siswa: { nama: 'asc' } }],
+      },
+    },
+    orderBy: [{ grade: 'asc' }, { nomor: 'asc' }],
+  })
+}
 
-  // Index pembayarans and keringanans per siswa per period.
-  type PayRec = { date: Date; amount: number }
-  const payIndex = new Map<string, PayRec>() // `${siswaId}|${YYYY-MM}`
-  for (const p of pembayarans) {
-    const k = `${p.siswaId}|${monthKey(p.periodYear, p.periodMonth)}`
-    payIndex.set(k, { date: p.tanggalTransaksi, amount: Number(p.amount) })
+// ─── Public API ────────────────────────────────────────────
+export async function buildMatrix(opts: BuildMatrixOptions): Promise<MatrixData> {
+  const startTime = performance.now()
+  const { angkatan, rombelId } = opts
+
+  if (!Number.isInteger(angkatan) || angkatan < 2000 || angkatan > 2100) {
+    throw new ValidationError('Parameter angkatan tidak valid.', {
+      angkatan: ['Harus bilangan bulat tahun masuk yang valid.'],
+    })
   }
 
-  const waiverIndex = new Map<string, JenisKeringanan>()
-  for (const w of keringanans) {
-    const k = `${w.siswaId}|${monthKey(w.periodYear, w.periodMonth)}`
-    waiverIndex.set(k, w.jenis)
+  const key = cacheKey(angkatan, rombelId)
+  const hit = cache.get(key)
+  if (hit && Date.now() - hit.builtAt < CACHE_TTL_MS) {
+    logger.debug(`[Matrix] Cache hit for ${key}`)
+    return hit.data
   }
 
-  // Index pelunasans by siswaId → list of ranges.
-  const pelunasanIndex = new Map<string, { start: string; end: string; date: Date }[]>()
-  for (const pel of pelunasans) {
-    const arr = pelunasanIndex.get(pel.siswaId) ?? []
-    arr.push({ start: pel.periodeMulai, end: pel.periodeAkhir, date: pel.tanggalLunas })
-    pelunasanIndex.set(pel.siswaId, arr)
+  // Single query with eager loading - fetches all data in one go
+  const rombels = await fetchRombels(angkatan, rombelId)
+
+  if (rombelId && rombels.length === 0) {
+    throw new NotFoundError('Rombel tidak ditemukan atau tidak memiliki siswa dengan angkatan tersebut.')
   }
 
-  // Assemble groups.
+  const periods = buildPeriodsForAngkatan(angkatan)
+
+  // Assemble groups directly from nested data - no separate queries needed
   const groups: MatrixRombelGroup[] = rombels.map((r) => {
     const siswaRows: MatrixSiswaRow[] = r.enrollments.map((e) => {
       const cells: Record<string, MatrixCell> = {}
+
+      // Build all cells for this siswa
       for (const period of periods) {
         const mk = monthKey(period.year, period.month)
-        const waiver = waiverIndex.get(`${e.siswaId}|${mk}`)
-        if (waiver) {
-          cells[mk] = { status: mapKeringananToStatus(waiver) }
+
+        // Check keringanan first (highest priority)
+        const keringanan = e.siswa.keringanans.find(
+          (k) => k.periodYear === period.year && k.periodMonth === period.month
+        )
+        if (keringanan) {
+          cells[mk] = { status: mapKeringananToStatus(keringanan.jenis) }
           continue
         }
-        const pay = payIndex.get(`${e.siswaId}|${mk}`)
-        if (pay) {
-          cells[mk] = { status: 'LUNAS', date: pay.date, amount: pay.amount }
-          continue
-        }
-        const pelList = pelunasanIndex.get(e.siswaId)
-        if (pelList) {
-          const match = pelList.find((x) => periodMatches(x.start, x.end, period.year, period.month))
-          if (match) {
-            cells[mk] = { status: 'LUNAS', date: match.date }
-            continue
+
+        // Check pembayaran second
+        const pembayaran = e.siswa.pembayarans.find(
+          (p) => p.periodYear === period.year && p.periodMonth === period.month
+        )
+        if (pembayaran) {
+          cells[mk] = {
+            status: 'LUNAS',
+            date: pembayaran.tanggalTransaksi,
+            amount: Number(pembayaran.amount),
           }
+          continue
         }
+
+        // Check pelunasan third
+        const pelunasan = e.siswa.pelunasans.find((pel) =>
+          periodMatches(pel.periodeMulai, pel.periodeAkhir, period.year, period.month)
+        )
+        if (pelunasan) {
+          cells[mk] = { status: 'LUNAS', date: pelunasan.tanggalLunas }
+          continue
+        }
+
+        // Default to BELUM
         cells[mk] = { status: 'BELUM' }
       }
+
       return {
         id: e.siswa.id,
         nis: e.siswa.nis,
@@ -352,6 +377,14 @@ export async function buildMatrix(opts: BuildMatrixOptions): Promise<MatrixData>
     rombels: groups,
     generatedAt: new Date(),
   }
+
+  const elapsed = performance.now() - startTime
+  logger.info({ duration: elapsed, angkatan, rombelId }, 'matrix.build')
+
+  if (elapsed > 2000) {
+    logger.warn({ duration: elapsed, angkatan, rombelId }, 'matrix.build: slow')
+  }
+
   cache.set(key, { builtAt: Date.now(), data })
   return data
 }
