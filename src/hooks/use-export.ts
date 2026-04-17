@@ -106,7 +106,7 @@ export function useExportBatch() {
     mutationFn: async (input: BatchExportInput) => {
       const res = await apiFetchRaw('/api/v1/export/batch', {
         method: 'POST',
-        body: JSON.stringify(input),
+        body: input,
       })
       if (!res.ok) {
         let message = `Unduh gagal (${res.status})`
