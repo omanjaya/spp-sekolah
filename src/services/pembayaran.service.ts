@@ -12,7 +12,7 @@ import type {
   PembayaranUpdateInput,
 } from '@/lib/validators/pembayaran.schema'
 import logger from '@/lib/logger'
-import { performance } from 'perf_hooks'
+
 
 export interface PembayaranSiswaSummary {
   id: string
@@ -20,6 +20,7 @@ export interface PembayaranSiswaSummary {
   nama: string
   angkatan: number | null
   alamat: string | null
+  catatan: string | null
 }
 
 export interface PembayaranRombelSummary {
@@ -59,6 +60,7 @@ type PembayaranWithRelations = Pembayaran & {
         nama: string
         angkatan?: number | null
         alamat?: string | null
+        catatan?: string | null
         enrollments?: Array<{
           rombel: {
             id: string
@@ -105,6 +107,7 @@ export function toDto(p: PembayaranWithRelations): PembayaranDto {
         nama: p.siswa.nama,
         angkatan: p.siswa.angkatan ?? null,
         alamat: p.siswa.alamat ?? null,
+        catatan: p.siswa.catatan ?? null,
       }
     : null
   const rombel = p.siswa?.enrollments
@@ -212,11 +215,19 @@ function buildWhere(filter: PembayaranFilterInput): Prisma.PembayaranWhereInput 
     }
   }
   if (filter.q) {
-    where.OR = [
-      { noBukti: { contains: filter.q, mode: 'insensitive' } },
-      { siswa: { nis: { contains: filter.q, mode: 'insensitive' } } },
-      { siswa: { nama: { contains: filter.q, mode: 'insensitive' } } },
-    ]
+    // Pure digits → likely a NIS search; use startsWith so "25503" doesn't also
+    // match noBukti values that happen to contain those digits as a substring.
+    const isNumeric = /^\d+$/.test(filter.q)
+    if (isNumeric) {
+      where.OR = [
+        { siswa: { nis: { startsWith: filter.q } } },
+      ]
+    } else {
+      where.OR = [
+        { noBukti: { contains: filter.q, mode: 'insensitive' } },
+        { siswa: { nama: { contains: filter.q, mode: 'insensitive' } } },
+      ]
+    }
   }
   return where
 }
@@ -275,6 +286,7 @@ const listInclude = {
       nama: true,
       angkatan: true,
       alamat: true,
+      catatan: true,
       enrollments: {
         select: {
           rombel: {

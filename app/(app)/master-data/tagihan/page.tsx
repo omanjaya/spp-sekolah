@@ -1,406 +1,479 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   Download,
   FileSpreadsheet,
-  Filter,
   Loader2,
-  Search,
+  Upload,
 } from 'lucide-react'
 
 import { PageHeader } from '@/components/layouts/page-header'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useTahunAjaranList } from '@/hooks/use-tahun-ajaran'
 import {
-  useTagihanMaster,
-  useExportTagihanMaster,
-  type TagihanRow,
-} from '@/hooks/use-tagihan-master'
+  useTagihanBpdReview,
+  useImportTagihanBpd,
+  useExportTagihanBpd,
+  useDownloadManualTemplate,
+  useImportManual,
+  type ReviewRow,
+} from '@/hooks/use-tagihan-bpd'
 
-const COLUMNS: { key: keyof Omit<TagihanRow, '_key'>; label: string; width: string; editable: boolean; align?: 'right' | 'center' }[] = [
-  { key: 'id', label: 'NIS', width: '90px', editable: false },
-  { key: 'nama', label: 'Nama', width: '200px', editable: true },
-  { key: 'jum_tagihan', label: 'Jum Tagihan', width: '120px', editable: true, align: 'right' },
-  { key: 'instansi', label: 'Instansi', width: '160px', editable: true },
-  { key: 'Alamat', label: 'Alamat', width: '160px', editable: true },
-  { key: 'Kelas', label: 'Kelas', width: '60px', editable: false },
-  { key: 'Jurusan', label: 'Jurusan', width: '80px', editable: true },
-  { key: 'Tahun', label: 'Tahun', width: '70px', editable: false, align: 'center' },
-  { key: 'Bulan', label: 'Bulan', width: '60px', editable: false, align: 'center' },
-  { key: 'DanaMasyarakat', label: 'Dana Masyarakat', width: '130px', editable: true, align: 'right' },
-  { key: 'Keterangan', label: 'Keterangan', width: '120px', editable: true },
+type FilterStatus = 'semua' | 'tetap' | 'dihapus_rekonsiliasi' | 'dihapus_manual'
+
+const BULAN_ID = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+  'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
 ]
 
-const GRADES = ['', 'X', 'XI', 'XII'] as const
+function formatBulan(bulan: number): string {
+  return BULAN_ID[bulan - 1] ?? String(bulan)
+}
 
-export default function MasterDataTagihanPage() {
-  const [tahunAjaranId, setTahunAjaranId] = useState('')
-  const [grade, setGrade] = useState('')
-  const [search, setSearch] = useState('')
-  const [editedRows, setEditedRows] = useState<Map<string, Partial<TagihanRow>>>(new Map())
-  const [page, setPage] = useState(1)
-  const pageSize = 100
+function formatNominal(n: number): string {
+  return new Intl.NumberFormat('id-ID').format(n)
+}
 
-  const { data: taList } = useTahunAjaranList()
-  const { data, isLoading } = useTagihanMaster({
-    tahunAjaranId: tahunAjaranId || undefined,
-    grade: grade || undefined,
-  })
-  const exportMutation = useExportTagihanMaster()
+// ─── File Drop Zone ───────────────────────────────────────────────────────────
 
-  const rows = data?.rows ?? []
-  const taKode = data?.taKode ?? ''
+interface FileDropZoneProps {
+  accept?: string
+  onFile: (file: File) => void
+  disabled?: boolean
+}
 
-  // Merge edits into rows
-  const mergedRows = useMemo(() => {
-    if (editedRows.size === 0) return rows
-    return rows.map((row) => {
-      const edits = editedRows.get(row._key)
-      return edits ? { ...row, ...edits } : row
-    })
-  }, [rows, editedRows])
+function FileDropZone({ accept = '.xlsx,.xls', onFile, disabled }: FileDropZoneProps) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [dragging, setDragging] = useState(false)
 
-  // Filter by search
-  const filteredRows = useMemo(() => {
-    if (!search.trim()) return mergedRows
-    const q = search.toLowerCase()
-    return mergedRows.filter(
-      (r) =>
-        r.id.toLowerCase().includes(q) ||
-        r.nama.toLowerCase().includes(q) ||
-        r.Kelas.toLowerCase().includes(q),
-    )
-  }, [mergedRows, search])
-
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize))
-  const safePage = Math.min(page, totalPages)
-  const paginatedRows = useMemo(
-    () => filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize),
-    [filteredRows, safePage, pageSize],
+  return (
+    <div
+      className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors ${
+        dragging ? 'border-blue-400 bg-blue-50' : 'border-slate-300 hover:border-slate-400 hover:bg-slate-50'
+      } ${disabled ? 'pointer-events-none opacity-50' : ''}`}
+      onClick={() => inputRef.current?.click()}
+      onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDragging(false)
+        const file = e.dataTransfer.files[0]
+        if (file) onFile(file)
+      }}
+    >
+      <FileSpreadsheet className="mb-2 h-8 w-8 text-slate-400" />
+      <p className="text-sm font-medium text-slate-600">Klik atau seret file Excel ke sini</p>
+      <p className="mt-1 text-xs text-slate-400">.xlsx atau .xls</p>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) {
+            onFile(file)
+            e.target.value = ''
+          }
+        }}
+        disabled={disabled}
+      />
+    </div>
   )
+}
 
-  const handleCellChange = useCallback(
-    (rowKey: string, colKey: string, value: string) => {
-      setEditedRows((prev) => {
-        const next = new Map(prev)
-        const existing = next.get(rowKey) ?? {}
-        // Coerce numeric fields
-        if (colKey === 'DanaMasyarakat') {
-          const num = Number(value.replace(/[^\d.-]/g, ''))
-          existing[colKey] = isNaN(num) ? 0 : num
-          // Also update jum_tagihan to stay in sync
-          existing.jum_tagihan = `${existing[colKey]}.00`
-        } else {
-          (existing as Record<string, unknown>)[colKey] = value
-        }
-        next.set(rowKey, existing)
-        return next
-      })
-    },
-    [],
-  )
+// ─── Tab 1: Import BPD ────────────────────────────────────────────────────────
 
-  const handleExport = () => {
-    exportMutation.mutate(filteredRows)
-  }
+function ImportBpdTab() {
+  const { data: reviewData } = useTagihanBpdReview()
+  const importMutation = useImportTagihanBpd()
 
-  const hasEdits = editedRows.size > 0
+  const lastImportAt = reviewData?.lastImportAt
+  const totalMaster = reviewData
+    ? reviewData.counts.tetap + reviewData.counts.dihapus_rekonsiliasi + reviewData.counts.dihapus_manual
+    : null
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="Master Data Tagihan BPD"
-        description={`Data tagihan belum bayar untuk upload ke asik.bpdbali${taKode ? ` — ${taKode}` : ''}. Klik cell untuk edit.`}
-        actions={
-          <Button
-            onClick={handleExport}
-            disabled={exportMutation.isPending || filteredRows.length === 0}
-            className="gap-2"
-          >
-            {exportMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4" />
-            )}
-            Export Excel ({filteredRows.length} baris)
-          </Button>
-        }
-      />
-
-      {/* Filters */}
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="w-52 space-y-1.5">
-          <label className="text-xs font-medium text-slate-600">Tahun Ajaran</label>
-          <Select
-            value={tahunAjaranId || 'active'}
-            onValueChange={(v) => {
-              setTahunAjaranId(v === 'active' ? '' : v)
-              setEditedRows(new Map())
-              setPage(1)
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="TA Aktif" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="active">TA Aktif</SelectItem>
-              {taList?.map((ta) => (
-                <SelectItem key={ta.id} value={ta.id}>
-                  {ta.kode}
-                  {ta.isActive ? ' (Aktif)' : ''}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="w-32 space-y-1.5">
-          <label className="text-xs font-medium text-slate-600">Kelas</label>
-          <Select
-            value={grade || 'all'}
-            onValueChange={(v) => {
-              setGrade(v === 'all' ? '' : v)
-              setEditedRows(new Map())
-              setPage(1)
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Semua" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Semua Kelas</SelectItem>
-              <SelectItem value="X">Kelas X</SelectItem>
-              <SelectItem value="XI">Kelas XI</SelectItem>
-              <SelectItem value="XII">Kelas XII</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="w-64 space-y-1.5">
-          <label className="text-xs font-medium text-slate-600">Cari</label>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
-            <Input
-              placeholder="Cari NIS atau nama..."
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-              className="pl-9"
-            />
-          </div>
-        </div>
-
-        {hasEdits && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setEditedRows(new Map())}
-            className="text-slate-500"
-          >
-            Reset editan
-          </Button>
-        )}
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+        Upload file tagihan dari asik.bpdbali. Data ini menjadi referensi master untuk generate
+        file upload bersih ke BPD setelah dikurangi pembayaran yang sudah masuk.
       </div>
 
-      {/* Info bar */}
-      <div className="flex items-center gap-3 text-xs text-slate-500">
-        <FileSpreadsheet className="h-3.5 w-3.5" />
-        <span>
-          {filteredRows.length} baris tagihan belum bayar
-          {hasEdits ? ` · ${editedRows.size} baris diedit` : ''}
-        </span>
-      </div>
-
-      {/* Spreadsheet table */}
-      {isLoading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 12 }).map((_, i) => (
-            <Skeleton key={i} className="h-8 w-full" />
-          ))}
-        </div>
-      ) : filteredRows.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 py-16 text-slate-400">
-          <Filter className="mb-2 h-8 w-8" />
-          <p className="text-sm font-medium">Tidak ada tagihan belum bayar</p>
-          <p className="text-xs">Semua siswa sudah lunas atau tidak ada data untuk filter ini.</p>
-        </div>
-      ) : (
-        <div className="overflow-auto rounded-lg border border-slate-200">
-          <table className="w-full border-collapse text-xs">
-            <thead>
-              <tr className="bg-slate-100">
-                <th className="sticky left-0 z-10 border-b border-r border-slate-200 bg-slate-100 px-2 py-2 text-left font-semibold text-slate-700"
-                    style={{ width: '40px' }}>
-                  #
-                </th>
-                {COLUMNS.map((col) => (
-                  <th
-                    key={col.key}
-                    className="border-b border-r border-slate-200 px-2 py-2 font-semibold text-slate-700 whitespace-nowrap"
-                    style={{ width: col.width, textAlign: col.align ?? 'left' }}
-                  >
-                    {col.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedRows.map((row, idx) => (
-                <SpreadsheetRow
-                  key={row._key}
-                  row={row}
-                  rowIndex={(safePage - 1) * pageSize + idx}
-                  edits={editedRows.get(row._key)}
-                  onCellChange={handleCellChange}
-                />
-              ))}
-            </tbody>
-          </table>
+      {lastImportAt && (
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <span className="inline-block h-2 w-2 rounded-full bg-green-400" />
+          <span>
+            Import terakhir:{' '}
+            {new Date(lastImportAt).toLocaleString('id-ID', {
+              dateStyle: 'medium',
+              timeStyle: 'short',
+            })}
+            {totalMaster !== null && ` · ${totalMaster} baris master`}
+          </span>
         </div>
       )}
 
-      {/* Pagination controls */}
-      {filteredRows.length > pageSize && (
-        <div className="flex items-center justify-between border-t border-slate-200 pt-3">
-          <span className="text-xs text-slate-500">
-            Halaman {safePage} dari {totalPages} · {filteredRows.length} baris total
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={safePage <= 1}
-            >
-              Sebelumnya
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={safePage >= totalPages}
-            >
-              Berikutnya
-            </Button>
+      <FileDropZone
+        onFile={(file) => importMutation.mutate(file)}
+        disabled={importMutation.isPending}
+      />
+
+      {importMutation.isPending && (
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Memproses file, harap tunggu...
+        </div>
+      )}
+
+      {importMutation.isSuccess && (
+        <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+          <p className="text-sm font-semibold text-green-800">Import berhasil</p>
+          <div className="mt-2 grid grid-cols-3 gap-4">
+            <div className="text-center">
+              <p className="text-2xl font-bold text-green-700">{importMutation.data.totalRows}</p>
+              <p className="text-xs text-green-600">Total baris</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-green-700">{importMutation.data.upserted}</p>
+              <p className="text-xs text-green-600">Dimuat</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-slate-600">{importMutation.data.skipped}</p>
+              <p className="text-xs text-slate-500">Dilewati</p>
+            </div>
           </div>
+          {importMutation.data.parseErrors && importMutation.data.parseErrors.length > 0 && (
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs text-amber-700">
+                {importMutation.data.parseErrors.length} peringatan parse
+              </summary>
+              <ul className="mt-1 space-y-0.5">
+                {importMutation.data.parseErrors.map((e, i) => (
+                  <li key={i} className="text-xs text-amber-600">{e}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+
+      {importMutation.isError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {importMutation.error instanceof Error
+            ? importMutation.error.message
+            : 'Gagal mengimport file.'}
         </div>
       )}
     </div>
   )
 }
 
-interface SpreadsheetRowProps {
-  row: TagihanRow
-  rowIndex: number
-  edits?: Partial<TagihanRow>
-  onCellChange: (rowKey: string, colKey: string, value: string) => void
-}
+// ─── Tab 2: Pembayaran Manual ─────────────────────────────────────────────────
 
-function SpreadsheetRow({ row, rowIndex, edits, onCellChange }: SpreadsheetRowProps) {
-  const isEdited = !!edits
+function PembayaranManualTab() {
+  const templateMutation = useDownloadManualTemplate()
+  const importMutation = useImportManual()
 
   return (
-    <tr className={`${rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} ${isEdited ? 'bg-amber-50/40' : ''} hover:bg-blue-50/40`}>
-      <td className="sticky left-0 z-10 border-b border-r border-slate-200 bg-inherit px-2 py-0 text-center text-slate-400 tabular-nums">
-        {rowIndex + 1}
-      </td>
-      {COLUMNS.map((col) => {
-        const value = String((row as unknown as Record<string, unknown>)[col.key] ?? '')
-        const wasEdited = edits && col.key in edits
-        return (
-          <EditableCell
-            key={col.key}
-            rowKey={row._key}
-            colKey={col.key}
-            value={value}
-            editable={col.editable}
-            align={col.align}
-            wasEdited={!!wasEdited}
-            onChange={onCellChange}
-          />
-        )
-      })}
-    </tr>
+    <div className="space-y-5">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+        Daftarkan pembayaran manual (tunai, ijazah, kurang mampu) agar otomatis ter-exclude dari
+        tagihan BPD. Download template, isi data, lalu upload.
+      </div>
+
+      <Button
+        variant="outline"
+        className="gap-2"
+        onClick={() => templateMutation.mutate()}
+        disabled={templateMutation.isPending}
+      >
+        {templateMutation.isPending ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Download className="h-4 w-4" />
+        )}
+        Download Template Excel
+      </Button>
+
+      <FileDropZone
+        onFile={(file) => importMutation.mutate(file)}
+        disabled={importMutation.isPending}
+      />
+
+      {importMutation.isPending && (
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Memproses file...
+        </div>
+      )}
+
+      {importMutation.isSuccess && (
+        <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+          <p className="text-sm font-semibold text-green-800">Import berhasil</p>
+          <div className="mt-2 grid grid-cols-2 gap-4">
+            <div className="text-center">
+              <p className="text-2xl font-bold text-green-700">{importMutation.data.success}</p>
+              <p className="text-xs text-green-600">Periode keringanan ditambahkan</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-slate-600">{importMutation.data.skipped}</p>
+              <p className="text-xs text-slate-500">Dilewati</p>
+            </div>
+          </div>
+          {importMutation.data.errors.length > 0 && (
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs text-amber-700">
+                {importMutation.data.errors.length} peringatan
+              </summary>
+              <ul className="mt-1 space-y-0.5">
+                {importMutation.data.errors.map((e, i) => (
+                  <li key={i} className="text-xs text-amber-600">{e}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+
+      {importMutation.isError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {importMutation.error instanceof Error
+            ? importMutation.error.message
+            : 'Gagal mengimport file.'}
+        </div>
+      )}
+    </div>
   )
 }
 
-interface EditableCellProps {
-  rowKey: string
-  colKey: string
-  value: string
-  editable: boolean
-  align?: 'right' | 'center'
-  wasEdited: boolean
-  onChange: (rowKey: string, colKey: string, value: string) => void
-}
+// ─── Tab 3: Review & Export ───────────────────────────────────────────────────
 
-function EditableCell({ rowKey, colKey, value, editable, align, wasEdited, onChange }: EditableCellProps) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-  const inputRef = useRef<HTMLInputElement>(null)
+function ReviewExportTab() {
+  const { data, isLoading, error } = useTagihanBpdReview()
+  const exportMutation = useExportTagihanBpd()
+  const [filter, setFilter] = useState<FilterStatus>('semua')
 
-  const startEdit = () => {
-    if (!editable) return
-    setDraft(value)
-    setEditing(true)
-    requestAnimationFrame(() => inputRef.current?.select())
-  }
+  const counts = data?.counts ?? { tetap: 0, dihapus_rekonsiliasi: 0, dihapus_manual: 0 }
+  const total = counts.tetap + counts.dihapus_rekonsiliasi + counts.dihapus_manual
 
-  const commit = () => {
-    setEditing(false)
-    if (draft !== value) {
-      onChange(rowKey, colKey, draft)
-    }
-  }
+  const filteredRows: ReviewRow[] = (data?.rows ?? []).filter((r) => {
+    if (filter === 'semua') return true
+    return r.status === filter
+  })
 
-  const textAlign = align ?? 'left'
+  const tetapRows = (data?.rows ?? []).filter((r) => r.status === 'tetap')
 
-  if (editing) {
-    return (
-      <td className="border-b border-r border-slate-200 p-0">
-        <input
-          ref={inputRef}
-          className="w-full bg-blue-50 px-2 py-1.5 text-xs outline-none ring-2 ring-inset ring-blue-400"
-          style={{ textAlign }}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') commit()
-            if (e.key === 'Escape') setEditing(false)
-            if (e.key === 'Tab') {
-              // Let natural tab behavior happen, commit first
-              commit()
-            }
-          }}
-          autoFocus
-        />
-      </td>
-    )
+  function rowBgClass(status: ReviewRow['status']): string {
+    if (status === 'dihapus_rekonsiliasi') return 'bg-green-50'
+    if (status === 'dihapus_manual') return 'bg-yellow-50'
+    return 'bg-white'
   }
 
   return (
-    <td
-      className={`border-b border-r border-slate-200 px-2 py-1.5 whitespace-nowrap ${
-        editable ? 'cursor-cell' : ''
-      } ${wasEdited ? 'bg-amber-100/60 font-medium text-amber-900' : 'text-slate-700'}`}
-      style={{ textAlign }}
-      onDoubleClick={startEdit}
-      onClick={(e) => {
-        // Single click also starts edit for faster workflow
-        if (editable) startEdit()
-      }}
-    >
-      {value}
-    </td>
+    <div className="space-y-5">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+        Verifikasi perubahan sebelum upload ke asik.bpdbali. Baris hijau = sudah terbayar via
+        BPD; kuning = keringanan/manual. Hanya baris putih (Tetap) yang akan dieksport.
+      </div>
+
+      {isLoading && (
+        <div className="space-y-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-8 w-full" />
+          ))}
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          Gagal memuat data review. Pastikan sudah import file BPD terlebih dahulu.
+        </div>
+      )}
+
+      {data && !isLoading && (
+        <>
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-lg border border-slate-200 bg-white p-3">
+              <p className="text-xs text-slate-500">Total master BPD</p>
+              <p className="mt-1 text-2xl font-bold text-slate-800">{total}</p>
+            </div>
+            <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+              <p className="text-xs text-green-700">Dihapus (rekonsiliasi BPD)</p>
+              <p className="mt-1 text-2xl font-bold text-green-800">{counts.dihapus_rekonsiliasi}</p>
+            </div>
+            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
+              <p className="text-xs text-yellow-700">Dihapus (manual/keringanan)</p>
+              <p className="mt-1 text-2xl font-bold text-yellow-800">{counts.dihapus_manual}</p>
+            </div>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+              <p className="text-xs text-blue-700">Tetap dalam tagihan</p>
+              <p className="mt-1 text-2xl font-bold text-blue-800">{counts.tetap}</p>
+            </div>
+          </div>
+
+          {/* Filter + Export */}
+          <div className="flex flex-wrap items-center gap-2">
+            {(
+              [
+                ['semua', `Semua (${total})`],
+                ['tetap', `Tetap (${counts.tetap})`],
+                ['dihapus_rekonsiliasi', `Dihapus BPD (${counts.dihapus_rekonsiliasi})`],
+                ['dihapus_manual', `Dihapus Manual (${counts.dihapus_manual})`],
+              ] as const
+            ).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setFilter(val)}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  filter === val
+                    ? 'bg-slate-800 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+
+            <div className="ml-auto">
+              <Button
+                onClick={() => exportMutation.mutate(tetapRows)}
+                disabled={exportMutation.isPending || tetapRows.length === 0}
+                className="gap-2"
+              >
+                {exportMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
+                Download untuk Upload BPD ({tetapRows.length} baris)
+              </Button>
+            </div>
+          </div>
+
+          {/* Table */}
+          {filteredRows.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 py-12 text-slate-400">
+              <p className="text-sm">Tidak ada data untuk filter ini.</p>
+            </div>
+          ) : (
+            <div className="overflow-auto rounded-lg border border-slate-200">
+              <table className="w-full border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-100">
+                    <th className="border-b border-r border-slate-200 px-2 py-2 text-left font-semibold text-slate-700">#</th>
+                    <th className="border-b border-r border-slate-200 px-2 py-2 text-left font-semibold text-slate-700">NIS</th>
+                    <th className="border-b border-r border-slate-200 px-2 py-2 text-left font-semibold text-slate-700">Nama</th>
+                    <th className="border-b border-r border-slate-200 px-2 py-2 text-left font-semibold text-slate-700">Kelas</th>
+                    <th className="border-b border-r border-slate-200 px-2 py-2 text-center font-semibold text-slate-700">Tahun</th>
+                    <th className="border-b border-r border-slate-200 px-2 py-2 text-center font-semibold text-slate-700">Bulan</th>
+                    <th className="border-b border-r border-slate-200 px-2 py-2 text-right font-semibold text-slate-700">Nominal</th>
+                    <th className="border-b border-r border-slate-200 px-2 py-2 text-left font-semibold text-slate-700">Status</th>
+                    <th className="border-b border-slate-200 px-2 py-2 text-left font-semibold text-slate-700">Alasan</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRows.map((row, idx) => (
+                    <tr
+                      key={`${row.nis}-${row.tahun}-${row.bulan}`}
+                      className={`${rowBgClass(row.status)} hover:brightness-95`}
+                    >
+                      <td className="border-b border-r border-slate-200 px-2 py-1.5 text-slate-400 tabular-nums">
+                        {idx + 1}
+                      </td>
+                      <td className="border-b border-r border-slate-200 px-2 py-1.5 tabular-nums text-slate-700">
+                        {row.nis}
+                      </td>
+                      <td className="border-b border-r border-slate-200 px-2 py-1.5 text-slate-700">
+                        {row.nama}
+                      </td>
+                      <td className="border-b border-r border-slate-200 px-2 py-1.5 text-slate-600">
+                        {row.kelas} {row.jurusan}
+                      </td>
+                      <td className="border-b border-r border-slate-200 px-2 py-1.5 text-center tabular-nums text-slate-600">
+                        {row.tahun}
+                      </td>
+                      <td className="border-b border-r border-slate-200 px-2 py-1.5 text-center text-slate-600">
+                        {formatBulan(row.bulan)}
+                      </td>
+                      <td className="border-b border-r border-slate-200 px-2 py-1.5 text-right tabular-nums text-slate-700">
+                        {formatNominal(row.nominal)}
+                      </td>
+                      <td className="border-b border-r border-slate-200 px-2 py-1.5">
+                        {row.status === 'tetap' && (
+                          <Badge variant="outline" className="border-blue-300 text-blue-700 text-[10px]">
+                            Tetap
+                          </Badge>
+                        )}
+                        {row.status === 'dihapus_rekonsiliasi' && (
+                          <Badge variant="outline" className="border-green-300 text-green-700 text-[10px]">
+                            Dihapus BPD
+                          </Badge>
+                        )}
+                        {row.status === 'dihapus_manual' && (
+                          <Badge variant="outline" className="border-yellow-400 text-yellow-700 text-[10px]">
+                            Dihapus Manual
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="border-b border-slate-200 px-2 py-1.5 text-slate-500">
+                        {row.alasan ?? '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {data.lastImportAt && (
+            <p className="text-xs text-slate-400">
+              Data master BPD terakhir diimport:{' '}
+              {new Date(data.lastImportAt).toLocaleString('id-ID', {
+                dateStyle: 'medium',
+                timeStyle: 'short',
+              })}
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function TagihanBpdPage() {
+  return (
+    <div className="space-y-5">
+      <PageHeader
+        title="Tagihan BPD — Workflow"
+        description="Import tagihan BPD, catat pembayaran manual, lalu export file upload yang bersih."
+      />
+
+      <Tabs defaultValue="import-bpd">
+        <TabsList className="mb-4">
+          <TabsTrigger value="import-bpd">Import BPD Tagihan</TabsTrigger>
+          <TabsTrigger value="pembayaran-manual">Pembayaran Manual</TabsTrigger>
+          <TabsTrigger value="review-export">Review &amp; Export</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="import-bpd">
+          <ImportBpdTab />
+        </TabsContent>
+
+        <TabsContent value="pembayaran-manual">
+          <PembayaranManualTab />
+        </TabsContent>
+
+        <TabsContent value="review-export">
+          <ReviewExportTab />
+        </TabsContent>
+      </Tabs>
+    </div>
   )
 }

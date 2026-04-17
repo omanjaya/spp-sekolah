@@ -18,8 +18,6 @@
 import { randomUUID } from 'node:crypto'
 import { performance } from 'perf_hooks'
 
-import { LRUCache } from 'lru-cache'
-
 import type { Grade, Pembayaran, Prisma } from '@prisma/client'
 
 import { prisma } from '@/lib/db'
@@ -104,19 +102,30 @@ interface CacheEntry {
 type CacheValue = Omit<CacheEntry, 'batchId' | 'createdAt' | 'expiresAt'>
 
 const CACHE_TTL_MS = 15 * 60 * 1000
+const CACHE_MAX = 50
 
-// LRU cache with max 50 entries and 15-minute TTL
-// No need for globalThis hack — LRUCache handles persistence correctly
-const cache = new LRUCache<string, Omit<CacheEntry, 'batchId' | 'createdAt' | 'expiresAt'>>({
-  max: 50,
-  ttl: CACHE_TTL_MS,
-  updateAgeOnGet: true,
-  updateAgeOnHas: true,
-})
+// Simple TTL cache — lru-cache has Turbopack ESM resolution issues
+const cache = new Map<string, { value: CacheValue; expiresAt: number }>()
+
+function cacheSet(key: string, value: CacheValue): void {
+  if (cache.size >= CACHE_MAX) {
+    // evict oldest
+    const oldest = cache.keys().next().value
+    if (oldest) cache.delete(oldest)
+  }
+  cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS })
+}
+
+function cacheGet(key: string): CacheValue | undefined {
+  const entry = cache.get(key)
+  if (!entry) return undefined
+  if (Date.now() > entry.expiresAt) { cache.delete(key); return undefined }
+  return entry.value
+}
 
 function sweep(): void {
-  // LRUCache handles TTL automatically — no manual sweep needed
-  // This function is kept for API compatibility but does nothing
+  const now = Date.now()
+  for (const [k, v] of cache) if (now > v.expiresAt) cache.delete(k)
 }
 
 function pickStatus(
@@ -201,21 +210,21 @@ async function analyzeParseResult(
 
   let conflictMap = new Map<string, { id: string; noBukti: string | null }>()
   if (periodeChecks.length > 0) {
-    const or: Prisma.PembayaranWhereInput[] = periodeChecks.map((c) => ({
-      siswaId: c.siswaId,
-      periodYear: c.year,
-      periodMonth: c.month,
-    }))
+    // Fetch by siswaId IN (...) only, then filter in-memory.
+    // Avoids a large OR clause that the Postgres planner handles poorly
+    // and is bounded by the number of distinct siswa in the batch.
+    const siswaIds = Array.from(new Set(periodeChecks.map((c) => c.siswaId)))
+    const wantKey = new Set(
+      periodeChecks.map((c) => `${c.siswaId}:${c.year}:${c.month}`),
+    )
     const existing = await prisma.pembayaran.findMany({
-      where: { OR: or },
+      where: { siswaId: { in: siswaIds } },
       select: { id: true, siswaId: true, periodYear: true, periodMonth: true, noBukti: true },
     })
-    conflictMap = new Map(
-      existing.map((e) => [
-        `${e.siswaId}:${e.periodYear}:${e.periodMonth}`,
-        { id: e.id, noBukti: e.noBukti },
-      ]),
-    )
+    for (const e of existing) {
+      const key = `${e.siswaId}:${e.periodYear}:${e.periodMonth}`
+      if (wantKey.has(key)) conflictMap.set(key, { id: e.id, noBukti: e.noBukti })
+    }
   }
 
   const counts: PreviewCounts = {
@@ -303,8 +312,7 @@ export const importService = {
       : null
 
     const batchId = randomUUID()
-    const now = Date.now()
-    cache.set(batchId, {
+    cacheSet(batchId, {
       fileHash: parse.fileHash,
       fileName: parse.fileName,
       fileSize: parse.fileSize,
@@ -359,7 +367,7 @@ export const importService = {
     errors: Array<{ rowIndex: number; message: string }>
   }> {
     const start = performance.now()
-    const entry = cache.get(batchId)
+    const entry = cacheGet(batchId)
     if (!entry) {
       throw new ValidationError('Preview sudah kedaluwarsa. Silakan upload ulang file.')
     }
@@ -411,6 +419,8 @@ export const importService = {
       const reservedSlots = new Map<string, Set<string>>() // siswaId → Set<"YYYY-MM">
       const slotKey = (y: number, m: number) => `${y}-${String(m).padStart(2, '0')}`
       const siswaAngkatanCache = new Map<string, number>()
+      // Cache paid-periode set per-siswa so we don't refetch on every roll-forward row.
+      const paidKeysCache = new Map<string, Set<string>>()
 
       /** Compute SPP window Jul(a) → Jun(a+3), 36 months. */
       const sppWindow = (angkatan: number): Array<{ y: number; m: number }> => {
@@ -438,12 +448,16 @@ export const importService = {
           siswaAngkatanCache.set(siswaId, angkatan)
         }
 
-        // Fetch already-paid periodes for this siswa
-        const paid = await tx.pembayaran.findMany({
-          where: { siswaId },
-          select: { periodYear: true, periodMonth: true },
-        })
-        const paidKeys = new Set(paid.map((p) => slotKey(p.periodYear, p.periodMonth)))
+        // Fetch once per siswa, reuse across roll-forward rows in the same batch.
+        let paidKeys = paidKeysCache.get(siswaId)
+        if (!paidKeys) {
+          const paid = await tx.pembayaran.findMany({
+            where: { siswaId },
+            select: { periodYear: true, periodMonth: true },
+          })
+          paidKeys = new Set(paid.map((p) => slotKey(p.periodYear, p.periodMonth)))
+          paidKeysCache.set(siswaId, paidKeys)
+        }
         const reserved = reservedSlots.get(siswaId) ?? new Set<string>()
 
         const window = sppWindow(angkatan)

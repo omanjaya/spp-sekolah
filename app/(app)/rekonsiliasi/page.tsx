@@ -1,9 +1,9 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   flexRender,
   getCoreRowModel,
@@ -25,6 +25,7 @@ import {
   Loader2,
   RefreshCw,
   Search,
+  StickyNote,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -51,6 +52,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { apiFetch, HttpError } from '@/lib/http';
 import type { PembayaranDto } from '@/services/pembayaran.service';
 import { cn } from '@/lib/utils';
@@ -149,6 +151,125 @@ export default function RekonsiliasiPage() {
   );
 }
 
+function SiswaDetailPanel({
+  row,
+  onClose,
+}: {
+  row: PembayaranDto | null;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [catatan, setCatatan] = useState('');
+  const [saving, setSaving] = useState(false);
+  const textRef = useRef<HTMLTextAreaElement>(null);
+
+  // Sync catatan ke state saat row berubah
+  useEffect(() => {
+    setCatatan(row?.siswa?.catatan ?? '');
+    setTimeout(() => textRef.current?.focus(), 100);
+  }, [row?.siswa?.id]);
+
+  async function saveCatatan() {
+    if (!row?.siswa?.id) return;
+    setSaving(true);
+    try {
+      await apiFetch(`/api/v1/siswa/${row.siswa.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ catatan: catatan || null }),
+      });
+      await qc.invalidateQueries({ queryKey: ['pembayaran'] });
+      toast.success('Catatan disimpan');
+    } catch {
+      toast.error('Gagal menyimpan catatan');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!row) return null;
+  const s = row.siswa;
+
+  return (
+    <Sheet open={!!row} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <SheetContent side="right" className="w-80 p-0 flex flex-col">
+        <SheetHeader className="border-b border-slate-200 px-5 py-4">
+          <SheetTitle className="text-sm font-semibold text-slate-900">Detail Siswa</SheetTitle>
+        </SheetHeader>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* Info siswa */}
+          <div className="space-y-1">
+            <p className="text-xs text-slate-500">NIS</p>
+            <p className="font-mono text-sm font-semibold">{s?.nis ?? '—'}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-slate-500">Nama</p>
+            <p className="text-sm font-medium text-slate-900">{s?.nama ?? '—'}</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <p className="text-xs text-slate-500">Angkatan</p>
+              <p className="font-mono text-sm">{s?.angkatan ?? '—'}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs text-slate-500">Kelas</p>
+              <p className="font-mono text-sm">{row.rombel?.kode ?? '—'}</p>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-slate-500">Periode Bayar</p>
+            <p className="text-sm">{MONTHS_ID[(row.periodMonth ?? 1) - 1]} {row.periodYear}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-slate-500">No. Bukti</p>
+            <p className="font-mono text-xs text-slate-700">{row.noBukti ?? '—'}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-slate-500">Cabang</p>
+            <p className="text-sm">{row.kodeCabang ?? '—'}</p>
+          </div>
+
+          <div className="border-t border-slate-100 pt-4 space-y-2">
+            <label className="flex items-center gap-1.5 text-xs font-medium text-slate-700">
+              <StickyNote className="h-3.5 w-3.5" />
+              Catatan Siswa
+            </label>
+            <textarea
+              ref={textRef}
+              value={catatan}
+              onChange={(e) => setCatatan(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveCatatan();
+              }}
+              placeholder="Tulis catatan... (Ctrl+Enter untuk simpan)"
+              rows={5}
+              className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900"
+            />
+            <Button
+              size="sm"
+              className="w-full"
+              onClick={saveCatatan}
+              disabled={saving}
+            >
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              Simpan Catatan
+            </Button>
+          </div>
+
+          {s?.id && (
+            <Link
+              href={`/siswa/${s.id}`}
+              className="block text-center text-xs text-slate-500 hover:text-slate-900 underline"
+            >
+              Lihat detail lengkap siswa →
+            </Link>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 function RekonsiliasiContent() {
   const searchParams = useSearchParams();
   const [filters, setFilters] = useState<Filters>(() => ({
@@ -158,6 +279,7 @@ function RekonsiliasiContent() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(50);
+  const [selectedRow, setSelectedRow] = useState<PembayaranDto | null>(null);
 
   useEffect(() => {
     const wantDup = searchParams.get('duplikat') === 'true';
@@ -530,9 +652,9 @@ function RekonsiliasiContent() {
                 setSearch(e.target.value);
                 setPage(1);
               }}
-              placeholder="Cari NIS, nama, atau no. bukti"
+              placeholder="NIS (angka) atau nama / no. bukti"
               className="pl-9"
-              aria-label="Cari transaksi berdasarkan NIS, nama, atau nomor bukti"
+              aria-label="Cari transaksi: ketik angka untuk cari NIS, atau teks untuk cari nama/nomor bukti"
             />
           </div>
 
@@ -786,7 +908,11 @@ function RekonsiliasiContent() {
                     acc += c.column.getSize() || 0;
                   });
                   return (
-                    <TableRow key={row.id} className="group">
+                    <TableRow
+                      key={row.id}
+                      className="group cursor-pointer"
+                      onClick={() => setSelectedRow(row.original)}
+                    >
                       {row.getVisibleCells().map((cell, idx) => {
                         const size = cell.column.getSize();
                         const isSticky = idx <= 2;
@@ -906,6 +1032,8 @@ function RekonsiliasiContent() {
           </div>
         </div>
       </div>
+
+      <SiswaDetailPanel row={selectedRow} onClose={() => setSelectedRow(null)} />
     </div>
   );
 }

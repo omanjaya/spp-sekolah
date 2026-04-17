@@ -39,6 +39,7 @@ async function buildTagihanRows(
   tahunAjaranId?: string,
   gradeFilter?: string,
 ): Promise<{ rows: TagihanRow[]; taKode: string }> {
+  // Ambil TA aktif untuk NOMINAL dan kode label saja — enrollments tidak difilter per TA
   const ta = tahunAjaranId
     ? await prisma.tahunAjaran.findUnique({ where: { id: tahunAjaranId } })
     : await prisma.tahunAjaran.findFirst({ where: { isActive: true } })
@@ -47,10 +48,11 @@ async function buildTagihanRows(
 
   const NOMINAL = ta.nominalSppDefault ? Number(ta.nominalSppDefault) : NOMINAL_FALLBACK
 
+  // Query SEMUA enrollment lintas semua TA (bukan hanya TA aktif).
+  // BPD menyimpan tagihan historis 2019–sekarang, jadi siswa yang sudah lulus
+  // tetap punya outstanding di BPD jika belum bayar.
   const enrollments = await prisma.enrollment.findMany({
     where: {
-      tahunAjaranId: ta.id,
-      siswa: { statusSiswa: 'AKTIF' },
       ...(gradeFilter ? { rombel: { grade: gradeFilter as 'X' | 'XI' | 'XII' } } : {}),
     },
     include: {
@@ -107,31 +109,32 @@ async function buildTagihanRows(
     const paid = paidSet.get(enr.siswa.id) ?? new Set()
     const jurusan = enr.rombel.kode.replace(/^(X{1,3}|XII|XI|X)\./, '')
 
-    for (let grade = 0; grade < 3; grade++) {
-      const gradeLabel = ['X.', 'XI.', 'XII.'][grade]!
-      for (let i = 0; i < 12; i++) {
-        const month = i < 6 ? 7 + i : i - 5
-        const year = i < 6 ? angk + grade : angk + grade + 1
-        const key = slotKey(year, month)
+    // Hanya generate slot untuk grade siswa saat ini di TA ini (bukan semua 3 grade)
+    const gradeOffset = { X: 0, XI: 1, XII: 2 }[enr.rombel.grade as 'X' | 'XI' | 'XII'] ?? 0
+    const gradeLabel = (['X.', 'XI.', 'XII.'] as const)[gradeOffset]!
 
-        if (paid.has(key)) continue
+    for (let i = 0; i < 12; i++) {
+      const month = i < 6 ? 7 + i : i - 5
+      const year = i < 6 ? angk + gradeOffset : angk + gradeOffset + 1
+      const key = slotKey(year, month)
 
-        const rowKey = `${enr.siswa.nis}-${year}-${month}`
-        rows.push({
-          _key: rowKey,
-          id: enr.siswa.nis,
-          nama: enr.siswa.nama,
-          jum_tagihan: `${NOMINAL}.00`,
-          instansi: INSTANSI,
-          Alamat: ALAMAT,
-          Kelas: gradeLabel,
-          Jurusan: jurusan,
-          Tahun: year,
-          Bulan: month,
-          DanaMasyarakat: NOMINAL,
-          Keterangan: '-',
-        })
-      }
+      if (paid.has(key)) continue
+
+      const rowKey = `${enr.siswa.nis}-${year}-${month}`
+      rows.push({
+        _key: rowKey,
+        id: enr.siswa.nis,
+        nama: enr.siswa.nama,
+        jum_tagihan: `${NOMINAL}.00`,
+        instansi: INSTANSI,
+        Alamat: ALAMAT,
+        Kelas: gradeLabel,
+        Jurusan: jurusan,
+        Tahun: year,
+        Bulan: month,
+        DanaMasyarakat: NOMINAL,
+        Keterangan: '-',
+      })
     }
   }
 
@@ -203,7 +206,10 @@ export const POST = apiHandler(async (req: NextRequest) => {
   ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 11 } }
 
   for (const r of rows) {
-    ws.addRow(r)
+    ws.addRow({
+      ...r,
+      Bulan: String(r.Bulan).padStart(2, '0'),
+    })
   }
 
   const buf = await wb.xlsx.writeBuffer()

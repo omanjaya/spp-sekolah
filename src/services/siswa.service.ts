@@ -97,10 +97,14 @@ export const siswaService = {
     if (input.angkatan) where.angkatan = input.angkatan
     if (input.status) where.statusSiswa = input.status
     if (input.search && input.search.trim()) {
-      where.OR = [
-        { nis: { contains: input.search.trim(), mode: 'insensitive' } },
-        { nama: { contains: input.search.trim(), mode: 'insensitive' } },
-      ]
+      const q = input.search.trim()
+      // Pure digits → NIS prefix search (uses text_pattern_ops index).
+      // Else → name contains (uses pg_trgm GIN index).
+      if (/^\d+$/.test(q)) {
+        where.OR = [{ nis: { startsWith: q } }]
+      } else {
+        where.OR = [{ nama: { contains: q, mode: 'insensitive' } }]
+      }
     }
 
     const [items, total] = await Promise.all([

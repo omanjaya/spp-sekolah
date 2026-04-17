@@ -20,7 +20,8 @@ services:
     ports:
       - "3737:3000"           # host:container
     environment:
-      DATABASE_URL: "postgresql://spp:spp@db:5432/spp?schema=public"
+      DATABASE_URL: "postgresql://spp:spp@db:5432/spp?schema=public&connection_limit=20&pool_timeout=10"
+      PRISMA_SLOW_QUERY_MS: "500"
       NEXTAUTH_URL: "http://localhost:3737"
       NEXTAUTH_SECRET: "dev-secret-please-change-in-production-abcdef123456"
       NODE_ENV: development

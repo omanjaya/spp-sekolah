@@ -30,7 +30,7 @@ import type { Grade, JenisKeringanan, Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { NotFoundError, ValidationError } from '@/core/errors'
 import logger from '@/lib/logger'
-import { performance } from 'perf_hooks'
+// performance is available globally in Node 16+ and browsers — no import needed
 
 export type MatrixCellStatus =
   | 'LUNAS'
@@ -311,23 +311,26 @@ export async function buildMatrix(opts: BuildMatrixOptions): Promise<MatrixData>
     const siswaRows: MatrixSiswaRow[] = r.enrollments.map((e) => {
       const cells: Record<string, MatrixCell> = {}
 
-      // Build all cells for this siswa
+      // Pre-index by "YYYY-MM" so per-period lookups are O(1) instead of O(n).
+      const keringananByKey = new Map<string, (typeof e.siswa.keringanans)[number]>()
+      for (const k of e.siswa.keringanans) {
+        keringananByKey.set(monthKey(k.periodYear, k.periodMonth), k)
+      }
+      const pembayaranByKey = new Map<string, (typeof e.siswa.pembayarans)[number]>()
+      for (const p of e.siswa.pembayarans) {
+        pembayaranByKey.set(monthKey(p.periodYear, p.periodMonth), p)
+      }
+
       for (const period of periods) {
         const mk = monthKey(period.year, period.month)
 
-        // Check keringanan first (highest priority)
-        const keringanan = e.siswa.keringanans.find(
-          (k) => k.periodYear === period.year && k.periodMonth === period.month
-        )
+        const keringanan = keringananByKey.get(mk)
         if (keringanan) {
           cells[mk] = { status: mapKeringananToStatus(keringanan.jenis) }
           continue
         }
 
-        // Check pembayaran second
-        const pembayaran = e.siswa.pembayarans.find(
-          (p) => p.periodYear === period.year && p.periodMonth === period.month
-        )
+        const pembayaran = pembayaranByKey.get(mk)
         if (pembayaran) {
           cells[mk] = {
             status: 'LUNAS',
@@ -337,7 +340,8 @@ export async function buildMatrix(opts: BuildMatrixOptions): Promise<MatrixData>
           continue
         }
 
-        // Check pelunasan third
+        // Pelunasan uses a range, so linear scan is required — but the list
+        // is typically very small (0–1 per siswa).
         const pelunasan = e.siswa.pelunasans.find((pel) =>
           periodMatches(pel.periodeMulai, pel.periodeAkhir, period.year, period.month)
         )
@@ -346,7 +350,6 @@ export async function buildMatrix(opts: BuildMatrixOptions): Promise<MatrixData>
           continue
         }
 
-        // Default to BELUM
         cells[mk] = { status: 'BELUM' }
       }
 

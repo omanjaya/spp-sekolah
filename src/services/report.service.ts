@@ -271,27 +271,30 @@ export const reportService = {
     const bulanLalu = toNumber(sumBulanLalu._sum.amount)
     const delta = bulanLalu > 0 ? ((bulanIni - bulanLalu) / bulanLalu) * 100 : (bulanIni > 0 ? 100 : 0)
 
-    // Duplikat bayar = pembayaran yang catatannya menandakan duplicate/roll-forward
-    const duplikatAgg = await prisma.pembayaran.aggregate({
-      where: {
-        OR: [
-          { catatan: { startsWith: 'Duplikat bayar', mode: 'insensitive' } },
-          { catatan: { startsWith: 'Roll-forward', mode: 'insensitive' } },
-        ],
-      },
+    // Duplikat bayar = pembayaran yang catatannya menandakan duplicate/roll-forward.
+    // Single groupBy replaces the previous aggregate + distinct findMany duo:
+    //   - distinct siswa count = length of group result
+    //   - total transaksi = sum of _count
+    //   - total nominal  = sum of _sum.amount
+    const duplikatWhere: Prisma.PembayaranWhereInput = {
+      OR: [
+        { catatan: { startsWith: 'Duplikat bayar', mode: 'insensitive' } },
+        { catatan: { startsWith: 'Roll-forward', mode: 'insensitive' } },
+      ],
+    }
+    const duplikatGroup = await prisma.pembayaran.groupBy({
+      by: ['siswaId'],
+      where: duplikatWhere,
       _count: { _all: true },
       _sum: { amount: true },
     })
-    const duplikatSiswaCount = await prisma.pembayaran.findMany({
-      where: {
-        OR: [
-          { catatan: { startsWith: 'Duplikat bayar', mode: 'insensitive' } },
-          { catatan: { startsWith: 'Roll-forward', mode: 'insensitive' } },
-        ],
-      },
-      select: { siswaId: true },
-      distinct: ['siswaId'],
-    })
+    let duplikatTransaksi = 0
+    let duplikatTotalNominal = 0
+    for (const g of duplikatGroup) {
+      duplikatTransaksi += g._count._all
+      duplikatTotalNominal += toNumber(g._sum.amount)
+    }
+    const duplikatSiswa = duplikatGroup.length
 
     return {
       tahunAjaran: ta
@@ -310,9 +313,9 @@ export const reportService = {
       tunggakanSiswa,
       kolektibilitas: Number(kolektibilitas.toFixed(2)),
       duplikatBayar: {
-        transaksi: duplikatAgg._count._all,
-        siswa: duplikatSiswaCount.length,
-        totalNominal: toNumber(duplikatAgg._sum.amount),
+        transaksi: duplikatTransaksi,
+        siswa: duplikatSiswa,
+        totalNominal: duplikatTotalNominal,
       },
       pemasukan12Bulan: series12Bulan,
       topTunggakan,

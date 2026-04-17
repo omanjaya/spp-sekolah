@@ -58,12 +58,13 @@ export interface ParseResult {
   errors: string[]
 }
 
-/** Header synonyms we accept (lowercased, trimmed, punctuation-light). */
+/** Header synonyms we accept (lowercased, trimmed, punctuation-light, underscores→spaces). */
 const HEADER_ALIASES: Record<string, string[]> = {
-  instansi: ['instansi'],
-  noTagihan: ['no. tagihan', 'no tagihan', 'notagihan', 'nis'],
+  instansi: ['instansi', 'id sklh'],
+  // 'id' is a fallback for the snake_case asik.bpdbali export format (column named 'id')
+  noTagihan: ['no. tagihan', 'no tagihan', 'notagihan', 'nis', 'id'],
   nama: ['nama'],
-  tagihan: ['tagihan'],
+  tagihan: ['tagihan', 'jum tagihan'],
   biayaAdm: ['biaya adm.', 'biaya adm', 'biayaadm'],
   tagihanLain: ['tagihan lain'],
   ketTagihanLain: ['ket. tagihan lain', 'ket tagihan lain'],
@@ -74,18 +75,19 @@ const HEADER_ALIASES: Record<string, string[]> = {
   bulan: ['bulan'],
   danaMasyarakat: ['dana masyarakat'],
   keterangan: ['keterangan'],
-  tanggalTransaksi: ['tanggal transaksi', 'tgl transaksi', 'tanggal'],
-  statusBayar: ['status bayar', 'status'],
-  kodeCabang: ['kode cabang', 'cabang'],
-  user: ['user', 'teller'],
-  statusReversal: ['status reversal'],
+  tanggalTransaksi: ['tanggal transaksi', 'tgl transaksi', 'tanggal', 'tgl tx'],
+  statusBayar: ['status bayar', 'status', 'sts bayar'],
+  kodeCabang: ['kode cabang', 'cabang', 'kd cab'],
+  user: ['user', 'teller', 'kd user'],
+  statusReversal: ['status reversal', 'sts reversal'],
   noBukti: ['no. bukti', 'no bukti', 'nobukti'],
 }
 
 type HeaderKey = keyof typeof HEADER_ALIASES
 
 function normalizeHeader(v: string): string {
-  return v.trim().toLowerCase().replace(/\s+/g, ' ')
+  // Replace underscores with spaces so snake_case headers (e.g. id_sklh, sts_bayar) also match
+  return v.trim().toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' ')
 }
 
 function buildHeaderMap(row: ExcelJS.Row): Map<HeaderKey, number> {
@@ -142,8 +144,26 @@ function normalizeKelas(raw: string): Grade | null {
 }
 
 function parseNumber(raw: string): number {
-  const cleaned = raw.replace(/[^\d.,-]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '')
-  const normalized = cleaned.replace(/,/g, '.')
+  const s = raw.replace(/[^\d.,-]/g, '')
+  // Detect thousands-separator style:
+  // If comma comes before a dot (e.g. "350,000.00") → comma is thousands, dot is decimal
+  const lastComma = s.lastIndexOf(',')
+  const lastDot = s.lastIndexOf('.')
+  let normalized: string
+  if (lastComma !== -1 && lastDot !== -1) {
+    if (lastDot > lastComma) {
+      // English format: 350,000.00 → strip commas
+      normalized = s.replace(/,/g, '')
+    } else {
+      // European format: 350.000,00 → strip dots, replace comma with dot
+      normalized = s.replace(/\./g, '').replace(',', '.')
+    }
+  } else if (lastComma !== -1) {
+    // Only comma: treat as decimal separator (e.g. "350000,00")
+    normalized = s.replace(',', '.')
+  } else {
+    normalized = s
+  }
   const n = Number(normalized)
   return Number.isFinite(n) ? n : 0
 }
@@ -348,7 +368,8 @@ export async function parseAsikWorkbook(
     const noBukti = raw.noBukti?.trim() ?? ''
     if (!noBukti) rowErrors.push({ field: 'noBukti', message: 'No. Bukti kosong.' })
 
-    const amount = parseNumber(raw.tagihan ?? '0')
+    // Use tagihan (jum_tagihan) first; fall back to danaMasyarakat for files that only have that column
+    const amount = parseNumber(raw.tagihan ?? raw.danaMasyarakat ?? '0')
     if (amount <= 0) {
       rowErrors.push({ field: 'amount', message: 'Nominal tagihan tidak valid.' })
     }
@@ -376,6 +397,12 @@ export async function parseAsikWorkbook(
     // 12 Feb 2026 for period 2025-12). The swap is only relevant for
     // typed-date Excel cells from recon compile (handled via
     // `maybeFixDDMMSwap` inside parseTanggalTransaksi's ISO fallback).
+
+    // Skip reversed (cancelled) transactions — sts_reversal = '1' or 'ya'
+    const reversalRaw = raw.statusReversal?.trim().toLowerCase() ?? ''
+    if (reversalRaw === '1' || reversalRaw === 'ya') {
+      rowErrors.push({ field: 'statusReversal', message: 'Transaksi dibatalkan (reversal) — dilewati.' })
+    }
 
     rows.push({
       rowIndex: rows.length,
