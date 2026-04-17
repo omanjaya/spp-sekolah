@@ -1,0 +1,31 @@
+# Dev-only image: runs `next dev` inside the container, with the project
+# source bind-mounted for hot reload. node_modules is a named volume so it
+# doesn't get overwritten by the host mount (and stays Linux-native).
+FROM node:20-alpine
+
+# wget for healthcheck, openssl for seed/cli utilities.
+RUN apk add --no-cache wget openssl libc6-compat
+
+WORKDIR /app
+
+# Install deps first (cached layer)
+COPY package.json package-lock.json* ./
+RUN npm ci
+
+# Prisma client needs to be generated against the schema
+COPY prisma ./prisma
+RUN npx prisma generate
+
+# Source is bind-mounted at runtime — not copied into the image.
+# Env tuned for bind-mount file watching on macOS/WSL.
+ENV CHOKIDAR_USEPOLLING=true \
+    WATCHPACK_POLLING=true \
+    NEXT_TELEMETRY_DISABLED=1 \
+    NODE_ENV=development \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+
+EXPOSE 3000
+
+# No CMD here — docker-compose.dev.yml provides the entrypoint so it can
+# run migrate + seed + dev in one flow.

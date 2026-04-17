@@ -1,0 +1,49 @@
+
+# Debug
+# Dependencies
+# Environment
+# IDE
+# Misc
+# Next.js
+# Prisma
+# Production
+# System
+# Testing
+*.pem
+*.swo
+*.swp
+*.tsbuildinfo
+.DS_Store
+.env
+.env.development.local
+.env.local
+.env.production
+.env.production.local
+.env.test.local
+.idea/
+.next/
+.pnp
+.pnp.js
+.vscode/
+.yarn/install-state.gz
+/backup
+Thumbs.db
+blob-report/
+build/
+coverage/
+deploy.zip
+dist/
+node_modules/
+npm-debug.log*
+out/
+playwright-report/
+playwright/.cache/
+prisma/*.db
+prisma/*.db-journal
+scripts/backfill-data/
+scripts/missing_payments.json
+scripts/pindahan.json
+scripts/waivers.json
+test-results/
+yarn-debug.log*
+yarn-error.log*

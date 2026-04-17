@@ -1,0 +1,265 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Identity ──────────────────────────────────────────────
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  nama         String
+  role         Role      @default(TU)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  importBatches ImportBatch[]
+  auditLogs     AuditLog[]
+}
+
+enum Role {
+  SUPER_ADMIN
+  BENDAHARA
+  TU
+  VIEWER
+}
+
+// ─── Academic Structure ────────────────────────────────────
+model TahunAjaran {
+  id                String   @id @default(cuid())
+  kode              String   @unique // "2023/2024"
+  tahunMulai        Int
+  tahunAkhir        Int
+  tanggalMulai      DateTime @db.Date
+  tanggalAkhir      DateTime @db.Date
+  isActive          Boolean  @default(false)
+  nominalSppDefault Decimal  @default(350000) @db.Decimal(12, 2)
+  createdAt         DateTime @default(now())
+
+  rombels     Rombel[]
+  enrollments Enrollment[]
+
+  @@index([isActive])
+}
+
+model Rombel {
+  id            String   @id @default(cuid())
+  tahunAjaranId String
+  grade         Grade
+  nomor         Int
+  kode          String // "XII.4" — sesuai Excel asik.bpdbali
+  waliKelas     String?
+  createdAt     DateTime @default(now())
+
+  tahunAjaran TahunAjaran  @relation(fields: [tahunAjaranId], references: [id], onDelete: Restrict)
+  enrollments Enrollment[]
+
+  @@unique([tahunAjaranId, grade, nomor])
+  @@unique([tahunAjaranId, kode])
+  @@index([tahunAjaranId])
+}
+
+enum Grade {
+  X
+  XI
+  XII
+}
+
+// ─── Students ──────────────────────────────────────────────
+model Siswa {
+  id           String      @id @default(cuid())
+  nis          String      @unique
+  nama         String
+  jenisKelamin Gender?
+  angkatan     Int // tahun masuk, mis. 2023
+  statusSiswa  StatusSiswa @default(AKTIF)
+  alamat       String?
+  kontakOrtu   String?
+  catatan      String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  enrollments Enrollment[]
+  pembayarans Pembayaran[]
+  keringanans Keringanan[]
+  pelunasans  Pelunasan[]
+
+  @@index([angkatan, statusSiswa])
+  @@index([nama])
+}
+
+enum Gender {
+  L
+  P
+}
+
+enum StatusSiswa {
+  AKTIF
+  PINDAH
+  LULUS
+  DO
+  CUTI
+}
+
+model Enrollment {
+  id            String   @id @default(cuid())
+  siswaId       String
+  rombelId      String
+  tahunAjaranId String
+  noAbsen       Int?
+  createdAt     DateTime @default(now())
+
+  siswa       Siswa       @relation(fields: [siswaId], references: [id], onDelete: Cascade)
+  rombel      Rombel      @relation(fields: [rombelId], references: [id], onDelete: Restrict)
+  tahunAjaran TahunAjaran @relation(fields: [tahunAjaranId], references: [id], onDelete: Restrict)
+
+  @@unique([siswaId, tahunAjaranId])
+  @@index([rombelId])
+}
+
+// ─── Payments ──────────────────────────────────────────────
+model Pembayaran {
+  id               String        @id @default(cuid())
+  siswaId          String
+  periodYear       Int
+  periodMonth      Int
+  amount           Decimal       @db.Decimal(12, 2)
+  biayaAdm         Decimal       @default(0) @db.Decimal(12, 2)
+  tanggalTransaksi DateTime
+  noBukti          String?       @unique // null untuk MANUAL
+  kodeCabang       String?
+  tellerUser       String?
+  statusBayar      StatusBayar   @default(TERBAYAR)
+  source           PaymentSource
+  importBatchId    String?
+  catatan          String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  siswa       Siswa        @relation(fields: [siswaId], references: [id], onDelete: Restrict)
+  importBatch ImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@unique([siswaId, periodYear, periodMonth])
+  @@index([periodYear, periodMonth])
+  @@index([tanggalTransaksi])
+  @@index([kodeCabang])
+}
+
+enum StatusBayar {
+  TERBAYAR
+  DIBATALKAN
+}
+
+enum PaymentSource {
+  IMPORT_EXCEL
+  PASTE_SPREADSHEET
+  MANUAL
+}
+
+// ─── Waivers ───────────────────────────────────────────────
+model Keringanan {
+  id          String          @id @default(cuid())
+  siswaId     String
+  periodYear  Int
+  periodMonth Int
+  jenis       JenisKeringanan
+  persentase  Int             @default(100) // 0-100
+  alasan      String?
+  buktiUrl    String? // optional SK/surat
+  createdAt   DateTime        @default(now())
+  createdBy   String?
+
+  siswa Siswa @relation(fields: [siswaId], references: [id], onDelete: Cascade)
+
+  @@unique([siswaId, periodYear, periodMonth])
+  @@index([periodYear, periodMonth])
+}
+
+enum JenisKeringanan {
+  JUARA
+  OSN
+  JUARA_UMUM
+  BEASISWA
+  KELUARGA_TIDAK_MAMPU
+  PINDAHAN
+  LAINNYA
+}
+
+// ─── Pelunasan (lunas sekaligus) ──────────────────────────
+model Pelunasan {
+  id            String   @id @default(cuid())
+  siswaId       String
+  periodeMulai  String // "2023-07"
+  periodeAkhir  String // "2026-06"
+  tanggalLunas  DateTime @db.Date
+  nominalTotal  Decimal  @db.Decimal(12, 2)
+  noBukti       String?  @unique
+  metodeLabel   String? // "Transfer BPD", "Tunai"
+  catatan       String?
+  createdAt     DateTime @default(now())
+  createdBy     String?
+
+  siswa Siswa @relation(fields: [siswaId], references: [id], onDelete: Restrict)
+
+  @@index([siswaId])
+}
+
+// ─── Import & Audit ───────────────────────────────────────
+model ImportBatch {
+  id             String       @id @default(cuid())
+  fileName       String
+  fileSize       Int
+  fileHash       String       // sha256 — multiple batch boleh untuk file yang sama (retry partial)
+  uploadedAt     DateTime     @default(now())
+  uploadedBy     String
+  totalRows      Int          @default(0)
+  successCount   Int          @default(0)
+  duplicateCount Int          @default(0)
+  errorCount     Int          @default(0)
+  errorDetails   Json?
+  status         ImportStatus @default(PENDING)
+
+  user        User         @relation(fields: [uploadedBy], references: [id])
+  pembayarans Pembayaran[]
+
+  @@index([fileHash])
+  @@index([uploadedAt])
+}
+
+enum ImportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  PARTIAL
+}
+
+model Setting {
+  key         String   @id
+  value       Json
+  description String?
+  updatedAt   DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String
+  entity    String?
+  entityId  String?
+  metadata  Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+}
