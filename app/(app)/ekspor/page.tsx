@@ -4,14 +4,15 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Archive,
+  ArrowRight,
   Download,
   FileSpreadsheet,
   FileText,
   GraduationCap,
   Loader2,
   Package,
-  Upload,
 } from 'lucide-react'
+import Link from 'next/link'
 
 import { PageHeader } from '@/components/layouts/page-header'
 import { Button } from '@/components/ui/button'
@@ -20,15 +21,8 @@ import { EmptyState } from '@/components/feedback/empty-state'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { apiFetch, HttpError } from '@/lib/http'
+import { apiFetch } from '@/lib/http'
 import { toast } from 'sonner'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import type { RombelDTO, TahunAjaranDTO } from '@/types/domain'
 import { useExportBatch, useExportExcel, useExportPdf } from '@/hooks/use-export'
 import { cn } from '@/lib/utils'
@@ -189,8 +183,23 @@ export default function EksporPage() {
         description="Unduh matriks pembayaran komite per rombel dalam format PDF atau Excel."
       />
 
-      {/* Export Tagihan for asik.bpdbali upload */}
-      <TagihanExportCard tahunAjaranList={tahunAjaranList ?? []} />
+      {/* Link ke BPD Upload */}
+      <Card className="border-blue-100 bg-blue-50/50">
+        <CardContent className="flex items-center justify-between py-4">
+          <div className="flex items-center gap-3">
+            <FileSpreadsheet className="h-5 w-5 text-blue-500" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-medium text-slate-800">Upload Tagihan ke asik.bpdbali?</p>
+              <p className="text-xs text-slate-500">Edit dan export tagihan belum bayar di halaman BPD Upload.</p>
+            </div>
+          </div>
+          <Button asChild variant="outline" size="sm" className="gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-100">
+            <Link href="/master-data/tagihan">
+              Buka BPD Upload <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Preset angkatan — tab besar */}
       <div className="space-y-3">
@@ -486,97 +495,3 @@ export default function EksporPage() {
   )
 }
 
-// ─── Tagihan Export for asik.bpdbali ───────────────────────
-
-function TagihanExportCard({ tahunAjaranList }: { tahunAjaranList: TahunAjaranDTO[] }) {
-  const [tahunAjaranId, setTahunAjaranId] = useState('')
-  const [format, setFormat] = useState<'xlsx' | 'txt'>('xlsx')
-  const [downloading, setDownloading] = useState(false)
-
-  async function handleDownload() {
-    setDownloading(true)
-    try {
-      const qs = new URLSearchParams()
-      if (tahunAjaranId) qs.set('tahunAjaranId', tahunAjaranId)
-      qs.set('format', format)
-      const res = await fetch(`/api/v1/export/tagihan?${qs.toString()}`, {
-        credentials: 'include',
-      })
-      if (!res.ok) {
-        const body = await res.text().catch(() => '')
-        throw new Error(body.slice(0, 200) || `Gagal export (${res.status})`)
-      }
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      const cd = res.headers.get('content-disposition') ?? ''
-      const match = cd.match(/filename="(.+)"/)
-      a.download = match?.[1] ?? `tagihan_belum_bayar.${format}`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-      toast.success('File tagihan berhasil diunduh.')
-    } catch (err) {
-      toast.error(err instanceof HttpError ? err.message : 'Gagal export tagihan.')
-    } finally {
-      setDownloading(false)
-    }
-  }
-
-  return (
-    <Card className="border-slate-200">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Upload className="h-4 w-4 text-slate-500" aria-hidden="true" />
-          Export Tagihan untuk asik.bpdbali
-        </CardTitle>
-        <CardDescription>
-          Generate file tagihan siswa yang <strong>belum bayar</strong> — siap upload ke asik.bpdbali.
-          Format sesuai template: id, nama, jum_tagihan, instansi, Alamat, Kelas, Jurusan, Tahun, Bulan, Dana Masyarakat, Keterangan.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="flex flex-wrap items-end gap-4">
-          <div className="w-52 space-y-2">
-            <label className="text-xs font-medium text-slate-600">Tahun Ajaran</label>
-            <Select value={tahunAjaranId || 'active'} onValueChange={(v) => setTahunAjaranId(v === 'active' ? '' : v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="TA Aktif" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="active">TA Aktif</SelectItem>
-                {tahunAjaranList.map((ta) => (
-                  <SelectItem key={ta.id} value={ta.id}>
-                    {ta.kode}{ta.isActive ? ' (Aktif)' : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="w-36 space-y-2">
-            <label className="text-xs font-medium text-slate-600">Format</label>
-            <Select value={format} onValueChange={(v) => setFormat(v as 'xlsx' | 'txt')}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="xlsx">Excel (.xlsx)</SelectItem>
-                <SelectItem value="txt">Tab Delimited (.txt)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <Button onClick={() => void handleDownload()} disabled={downloading} className="gap-2">
-            {downloading ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <Download className="h-4 w-4" aria-hidden="true" />
-            )}
-            Unduh Tagihan Belum Bayar
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
