@@ -458,12 +458,13 @@ export const reportService = {
     }
     if (months.length === 0) return 0
 
-    // Ambil total siswa aktif (denominator approximation): untuk tiap bulan,
-    // tagihan = siswaAktif × nominalSppDefault (proxy sederhana). Paid diambil
-    // dari Pembayaran.sum(amount). Keringanan 100% mengurangi tagihan.
+    // Ambil siswa yang ENROLLED di TA aktif (bukan semua siswa aktif — siswa
+    // angkatan lama yang sudah lulus tapi masih statusSiswa=AKTIF tidak dihitung).
     const nominal = ta ? toNumber(ta.nominalSppDefault) : 350_000
-    const siswaAktif = await prisma.siswa.count({ where: { statusSiswa: 'AKTIF' } })
-    if (siswaAktif === 0 || nominal === 0) return 0
+    const enrolledCount = ta
+      ? await prisma.enrollment.count({ where: { tahunAjaranId: ta.id } })
+      : await prisma.siswa.count({ where: { statusSiswa: 'AKTIF' } })
+    if (enrolledCount === 0 || nominal === 0) return 0
 
     const paidAgg = await prisma.pembayaran.aggregate({
       where: {
@@ -481,7 +482,7 @@ export const reportService = {
         OR: months.map((p) => ({ periodYear: p.year, periodMonth: p.month })),
       },
     })
-    const tagihan = Math.max(siswaAktif * months.length - keringananFull, 0) * nominal
+    const tagihan = Math.max(enrolledCount * months.length - keringananFull, 0) * nominal
     if (tagihan === 0) return 0
     const ratio = (paid / tagihan) * 100
     return Math.min(Math.max(ratio, 0), 100)

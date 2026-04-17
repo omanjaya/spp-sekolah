@@ -25,7 +25,7 @@ const querySchema = z.object({
 
 const INSTANSI = 'SMAN_1_DENPASAR'
 const ALAMAT = 'Jl Kamboja No 4'
-const NOMINAL = 350000
+const NOMINAL_FALLBACK = 350000
 
 export async function GET(req: NextRequest): Promise<Response> {
   const actor = await requireRole([ROLES.SUPER_ADMIN, ROLES.BENDAHARA])
@@ -44,6 +44,9 @@ export async function GET(req: NextRequest): Promise<Response> {
       { status: 404 },
     )
   }
+
+  // Nominal SPP dari TA (bisa berbeda per tahun, misal Rp 175k saat COVID)
+  const NOMINAL = ta.nominalSppDefault ? Number(ta.nominalSppDefault) : NOMINAL_FALLBACK
 
   // Get all enrolled siswa for this TA (or filter by angkatan)
   const enrollments = await prisma.enrollment.findMany({
