@@ -7,6 +7,23 @@ const nextConfig: NextConfig = {
   // React-PDF uses yoga-wasm + font loader that hang when Next tries to bundle them.
   // Treat as external so it resolves from node_modules at runtime.
   serverExternalPackages: ['@react-pdf/renderer'],
+  // Tree-shake icon/radix barrel imports. These packages export hundreds of
+  // symbols; without this, importing a single icon pulls the whole barrel.
+  experimental: {
+    optimizePackageImports: [
+      'lucide-react',
+      '@radix-ui/react-avatar',
+      '@radix-ui/react-checkbox',
+      '@radix-ui/react-dialog',
+      '@radix-ui/react-dropdown-menu',
+      '@radix-ui/react-popover',
+      '@radix-ui/react-select',
+      '@radix-ui/react-tabs',
+      '@radix-ui/react-tooltip',
+      'date-fns',
+      'recharts',
+    ],
+  },
   // typedRoutes intentionally disabled until all routes are scaffolded by other tracks.
   async headers() {
     return [

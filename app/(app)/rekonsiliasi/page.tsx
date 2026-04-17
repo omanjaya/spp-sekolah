@@ -56,6 +56,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { apiFetch, HttpError } from '@/lib/http';
 import type { PembayaranDto } from '@/services/pembayaran.service';
 import { cn } from '@/lib/utils';
+import { useDebounce } from '@/hooks/use-debounce';
 
 interface ListResponse {
   data: PembayaranDto[];
@@ -277,7 +278,14 @@ function RekonsiliasiContent() {
     duplikat: searchParams.get('duplikat') === 'true',
   }));
   const [search, setSearch] = useState('');
+  // Debounce so each keystroke doesn't spawn an API call.
+  const debouncedSearch = useDebounce(search, 300);
   const [page, setPage] = useState(1);
+  // Reset to page 1 when a new search term is applied, otherwise the user
+  // might get "no results" because they're still on page 3 of the old term.
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch]);
   const [limit, setLimit] = useState(50);
   const [selectedRow, setSelectedRow] = useState<PembayaranDto | null>(null);
 
@@ -297,7 +305,7 @@ function RekonsiliasiContent() {
       sortBy: sorting[0]?.id ?? 'tanggalTransaksi',
       sortOrder: sorting[0]?.desc ? 'desc' : 'asc',
     };
-    if (search.trim()) out.q = search.trim();
+    if (debouncedSearch.trim()) out.q = debouncedSearch.trim();
     if (filters.angkatan) out.angkatan = filters.angkatan;
     if (filters.rombelId) out.rombelId = filters.rombelId;
     if (filters.tahunAjaranId) out.tahunAjaranId = filters.tahunAjaranId;
@@ -307,7 +315,7 @@ function RekonsiliasiContent() {
     if (filters.status) out.status = filters.status;
     if (filters.duplikat) out.duplikat = 'true';
     return out;
-  }, [filters, search, page, limit, sorting]);
+  }, [filters, debouncedSearch, page, limit, sorting]);
 
   const { data, isLoading, isFetching, refetch } = useQuery<ListResponse>({
     queryKey: ['pembayaran', activeFilters],
