@@ -245,10 +245,9 @@ const s = StyleSheet.create({
     marginBottom: 2,
   },
   terbilangValue: {
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: 'Helvetica-Oblique',
     fontSize: 8,
     color: C.ink,
-    fontStyle: 'italic',
   },
 
   // tanda tangan
@@ -289,7 +288,7 @@ const s = StyleSheet.create({
   catatanText: {
     fontSize: 7,
     color: C.muted,
-    fontStyle: 'italic',
+    fontFamily: 'Helvetica-Oblique',
     marginBottom: 8,
   },
 
@@ -298,7 +297,7 @@ const s = StyleSheet.create({
     fontSize: 7,
     color: C.faint,
     textAlign: 'right',
-    fontStyle: 'italic',
+    fontFamily: 'Helvetica-Oblique',
     marginBottom: 4,
   },
 
