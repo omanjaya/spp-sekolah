@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   ArrowUpCircle,
+  Archive,
   Award,
   CheckCircle2,
   Clipboard,
@@ -98,6 +99,7 @@ const NAV: NavItem[] = [
       { label: 'Tagihan BPD', href: '/master-data/tagihan', icon: FileSpreadsheet },
     ],
   },
+  { label: 'Backup Data', href: '/backup', icon: Archive },
   { label: 'Pengaturan', href: '/pengaturan', icon: Settings },
 ];
 
