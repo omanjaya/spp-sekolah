@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { FileBarChart, Filter, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,7 +15,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { LineChart } from '@/components/charts/line-chart';
+// Recharts pulls ~200KB; defer so page TTI isn't blocked by chart bundle.
+const LineChart = dynamic(
+  () => import('@/components/charts/line-chart').then((m) => m.LineChart),
+  { ssr: false, loading: () => <div className="h-[260px] w-full animate-pulse rounded bg-slate-100" /> },
+) as typeof import('@/components/charts/line-chart').LineChart;
 import { EmptyState } from '@/components/feedback/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePemasukan } from '@/hooks/use-reports';

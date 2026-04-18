@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -20,7 +21,11 @@ import { PageHeader } from '@/components/layouts/page-header';
 import { StatCard, type StatCardTone } from '@/components/feedback/stat-card';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { ActivityFeed, type ActivityItem } from '@/components/feedback/activity-feed';
-import { LineChart } from '@/components/charts/line-chart';
+// Recharts pulls ~200KB; defer so initial dashboard paint isn't blocked.
+const LineChart = dynamic(
+  () => import('@/components/charts/line-chart').then((m) => m.LineChart),
+  { ssr: false, loading: () => <div className="h-[260px] w-full animate-pulse rounded bg-slate-100" /> },
+) as typeof import('@/components/charts/line-chart').LineChart;
 import { TunggakanTable } from '@/components/tables/tunggakan-table';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';

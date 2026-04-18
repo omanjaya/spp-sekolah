@@ -12,6 +12,7 @@ import {
   Download,
   FileBarChart,
   FileSpreadsheet,
+  FileText,
   GraduationCap,
   History,
   LayoutDashboard,
@@ -76,6 +77,7 @@ const NAV: NavItem[] = [
   },
   { label: 'Keringanan', href: '/keringanan', icon: Award },
   { label: 'Pelunasan', href: '/pelunasan', icon: CheckCircle2 },
+  { label: 'Kwitansi', href: '/kwitansi', icon: FileText },
   { label: 'Laporan Komite', href: '/ekspor', icon: Download },
   {
     label: 'Laporan',

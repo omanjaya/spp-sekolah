@@ -1,5 +1,6 @@
 'use client'
 
+import { memo, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import type {
   MatrixCell,
@@ -29,6 +30,10 @@ export function PaymentMatrix({
   showRombelHeaders = true,
   className,
 }: PaymentMatrixProps) {
+  const periodKeys = useMemo(
+    () => data.periods.map((p) => periodKey(p.year, p.month)),
+    [data.periods],
+  )
   return (
     <div className={cn('w-full overflow-auto rounded-md border border-slate-200', className)}>
       <table className="w-full border-collapse text-xs">
@@ -87,7 +92,7 @@ export function PaymentMatrix({
               periodsCount={data.periods.length}
               compact={compact}
               showRombelHeaders={showRombelHeaders}
-              periodKeys={data.periods.map((p) => periodKey(p.year, p.month))}
+              periodKeys={periodKeys}
             />
           ))}
           {data.rombels.length === 0 && (
@@ -118,7 +123,7 @@ interface RombelBlockProps {
   periodKeys: string[]
 }
 
-function RombelBlock({
+const RombelBlock = memo(function RombelBlock({
   rombel,
   periodsCount,
   compact,
@@ -178,9 +183,9 @@ function RombelBlock({
       ))}
     </>
   )
-}
+})
 
-function CellView({ cell, compact }: { cell: MatrixCell | undefined; compact?: boolean }) {
+const CellView = memo(function CellView({ cell, compact }: { cell: MatrixCell | undefined; compact?: boolean }) {
   const padding = compact ? 'px-1 py-1' : 'px-2 py-1.5'
   if (!cell || cell.status === 'BELUM') {
     return (
@@ -209,7 +214,7 @@ function CellView({ cell, compact }: { cell: MatrixCell | undefined; compact?: b
       </span>
     </td>
   )
-}
+})
 
 function formatDmy(d: Date | string): string {
   const date = typeof d === 'string' ? new Date(d) : d

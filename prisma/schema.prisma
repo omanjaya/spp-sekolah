@@ -22,6 +22,7 @@ model User {
   importBatches           ImportBatch[]
   auditLogs               AuditLog[]
   tagihanBpdImportBatches TagihanBpdImportBatch[]
+  kwitansis               Kwitansi[]
 }
 
 enum Role {
@@ -90,6 +91,7 @@ model Siswa {
   pembayarans Pembayaran[]
   keringanans Keringanan[]
   pelunasans  Pelunasan[]
+  kwitansis   Kwitansi[]
 
   @@index([angkatan, statusSiswa])
   @@index([nama])
@@ -145,8 +147,9 @@ model Pembayaran {
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
-  siswa       Siswa        @relation(fields: [siswaId], references: [id], onDelete: Restrict)
-  importBatch ImportBatch? @relation(fields: [importBatchId], references: [id])
+  siswa         Siswa         @relation(fields: [siswaId], references: [id], onDelete: Restrict)
+  importBatch   ImportBatch?  @relation(fields: [importBatchId], references: [id])
+  kwitansiItems KwitansiItem[]
 
   @@unique([siswaId, periodYear, periodMonth])
   @@index([periodYear, periodMonth])
@@ -214,6 +217,46 @@ model Pelunasan {
 
   @@index([siswaId])
   @@index([siswaId, tanggalLunas])
+}
+
+// ─── Kwitansi (Receipts) ──────────────────────────────────
+model Kwitansi {
+  id            String   @id @default(cuid())
+  nomorKwitansi String   @unique // KWT/2025/04/0001
+  siswaId       String
+  tanggal       DateTime @default(now())
+  totalAmount   Decimal  @db.Decimal(12, 2)
+  biayaAdm      Decimal  @default(0) @db.Decimal(12, 2)
+  namaOrangTua  String?  // nama pembayar (ortu/wali)
+  catatan       String?
+  createdById   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  siswa     Siswa         @relation(fields: [siswaId], references: [id], onDelete: Restrict)
+  createdBy User          @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  items     KwitansiItem[]
+
+  @@index([siswaId])
+  @@index([tanggal])
+  @@index([createdAt])
+}
+
+model KwitansiItem {
+  id           String   @id @default(cuid())
+  kwitansiId   String
+  periodYear   Int
+  periodMonth  Int
+  amount       Decimal  @db.Decimal(12, 2)
+  keterangan   String?
+  pembayaranId String?  // optional link ke record Pembayaran
+  createdAt    DateTime @default(now())
+
+  kwitansi   Kwitansi    @relation(fields: [kwitansiId], references: [id], onDelete: Cascade)
+  pembayaran Pembayaran? @relation(fields: [pembayaranId], references: [id], onDelete: SetNull)
+
+  @@unique([kwitansiId, periodYear, periodMonth])
+  @@index([pembayaranId])
 }
 
 // ─── Import & Audit ───────────────────────────────────────
