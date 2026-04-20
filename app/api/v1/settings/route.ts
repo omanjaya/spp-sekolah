@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server'
 
-import { apiHandler, requireAuth, requireRole } from '@/lib/api-handler'
+import { apiHandler, requireRole } from '@/lib/api-handler'
 import { ROLES } from '@/core/constants'
 import { settingBulkSchema } from '@/lib/validators/setting.schema'
 import { settingService } from '@/services/setting.service'
@@ -10,7 +10,7 @@ export const runtime = 'nodejs'
 
 export async function GET(req: NextRequest): Promise<Response> {
   return apiHandler(async () => {
-    await requireAuth()
+    await requireRole([ROLES.SUPER_ADMIN])
     return settingService.getAll()
   })(req)
 }

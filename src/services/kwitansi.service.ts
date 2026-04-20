@@ -4,8 +4,9 @@
  * Nomor format: KWT/{YYYY}/{MM}/{seq:04d}
  * Seq di-reset tiap bulan, per-bulan dihitung dari Kwitansi yang sudah ada.
  */
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
-import { ConflictError, NotFoundError } from '@/core/errors'
+import { ConflictError, NotFoundError, ValidationError } from '@/core/errors'
 import { PAGINATION } from '@/core/constants'
 import type { KwitansiCreateInput, KwitansiFilterInput } from '@/lib/validators/kwitansi.schema'
 
@@ -123,17 +124,27 @@ const WITH_RELATIONS = {
 /**
  * Generate nomor kwitansi: KWT/{YYYY}/{MM}/{seq:04d}
  * Seq = jumlah kwitansi pada bulan tersebut + 1.
+ *
+ * Fix A12: Gunakan UTC+8 (WIB) fixed offset agar kalkulasi bulan konsisten
+ * di server manapun (UTC, dll).
+ *
+ * Fix A1: Menerima `tx` (transaction client) agar count berjalan dalam
+ * transaction Serializable yang sama dengan insert — mencegah race condition.
  */
-async function generateNomor(tanggal: Date): Promise<string> {
-  const year = tanggal.getFullYear()
-  const month = tanggal.getMonth() + 1
-  const yyyy = String(year)
-  const mm = String(month).padStart(2, '0')
+async function generateNomor(tanggal: Date, tx: Prisma.TransactionClient): Promise<string> {
+  // Offset WIB = UTC+8 = 8 jam
+  const wibMs = tanggal.getTime() + 8 * 60 * 60 * 1000
+  const wibDate = new Date(wibMs)
+  const year  = wibDate.getUTCFullYear()
+  const month = wibDate.getUTCMonth() + 1
+  const yyyy  = String(year)
+  const mm    = String(month).padStart(2, '0')
 
-  const startOfMonth = new Date(year, month - 1, 1)
-  const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999)
+  // Range bulan dalam UTC (mundur 8 jam dari batas WIB)
+  const startOfMonth = new Date(Date.UTC(year, month - 1, 1) - 8 * 60 * 60 * 1000)
+  const endOfMonth   = new Date(Date.UTC(year, month,     1) - 8 * 60 * 60 * 1000 - 1)
 
-  const count = await prisma.kwitansi.count({
+  const count = await tx.kwitansi.count({
     where: {
       tanggal: { gte: startOfMonth, lte: endOfMonth },
     },
@@ -208,41 +219,63 @@ export const kwitansiService = {
   },
 
   async create(input: KwitansiCreateInput, createdById: string): Promise<KwitansiDto> {
-    const siswa = await prisma.siswa.findUnique({ where: { id: input.siswaId } })
-    if (!siswa) throw new NotFoundError(`Siswa ${input.siswaId} tidak ditemukan.`)
+    // Fix A1: Bungkus seluruh create dalam transaction Serializable
+    // agar generateNomor (count + 1) dan insert tidak bisa terjadi secara bersamaan
+    // dari dua request — mencegah race condition pada nomor kwitansi.
+    return prisma.$transaction(async (tx) => {
+      // Validasi siswa di dalam transaction
+      const siswa = await tx.siswa.findUnique({ where: { id: input.siswaId } })
+      if (!siswa) throw new NotFoundError(`Siswa ${input.siswaId} tidak ditemukan.`)
 
-    const tanggal = input.tanggal ?? new Date()
-    const totalAmount = input.items.reduce((s, i) => s + i.amount, 0)
+      const tanggal = input.tanggal ?? new Date()
+      const totalAmount = input.items.reduce((s, i) => s + i.amount, 0)
 
-    // Pastikan tidak ada duplikat kwitansi per bulan untuk siswa yg sama di hari yg sama
-    // (boleh buat kwitansi berbeda hari untuk bulan yang sama)
+      // Fix A4: Validasi semua pembayaranId milik siswa yang sama
+      // untuk mencegah cross-siswa link pembayaran.
+      const pembayaranIds = input.items
+        .map((i) => i.pembayaranId)
+        .filter((id): id is string => id != null)
 
-    const nomorKwitansi = await generateNomor(tanggal)
+      if (pembayaranIds.length > 0) {
+        const validCount = await tx.pembayaran.count({
+          where: { id: { in: pembayaranIds }, siswaId: input.siswaId },
+        })
+        if (validCount !== pembayaranIds.length) {
+          throw new ValidationError('Beberapa pembayaranId tidak valid atau bukan milik siswa ini.')
+        }
+      }
 
-    const k = await prisma.kwitansi.create({
-      data: {
-        nomorKwitansi,
-        siswaId: input.siswaId,
-        tanggal,
-        totalAmount,
-        biayaAdm: input.biayaAdm,
-        namaOrangTua: input.namaOrangTua ?? null,
-        catatan: input.catatan ?? null,
-        createdById,
-        items: {
-          create: input.items.map((item) => ({
-            periodYear:   item.periodYear,
-            periodMonth:  item.periodMonth,
-            amount:       item.amount,
-            keterangan:   item.keterangan ?? null,
-            pembayaranId: item.pembayaranId ?? null,
-          })),
+      // Pastikan tidak ada duplikat kwitansi per bulan untuk siswa yg sama di hari yg sama
+      // (boleh buat kwitansi berbeda hari untuk bulan yang sama)
+
+      // Generate nomor dalam transaction agar sequence aman dari race condition
+      const nomorKwitansi = await generateNomor(tanggal, tx)
+
+      const k = await tx.kwitansi.create({
+        data: {
+          nomorKwitansi,
+          siswaId: input.siswaId,
+          tanggal,
+          totalAmount,
+          biayaAdm: input.biayaAdm,
+          namaOrangTua: input.namaOrangTua ?? null,
+          catatan: input.catatan ?? null,
+          createdById,
+          items: {
+            create: input.items.map((item) => ({
+              periodYear:   item.periodYear,
+              periodMonth:  item.periodMonth,
+              amount:       item.amount,
+              keterangan:   item.keterangan ?? null,
+              pembayaranId: item.pembayaranId ?? null,
+            })),
+          },
         },
-      },
-      include: WITH_RELATIONS,
-    })
+        include: WITH_RELATIONS,
+      })
 
-    return toDto(k)
+      return toDto(k)
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   },
 
   async delete(id: string): Promise<void> {

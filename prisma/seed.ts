@@ -17,13 +17,27 @@ async function main() {
   console.log('[seed] starting...')
 
   // ─── Users ─────────────────────────────────────────────
-  const superAdminHash = await bcrypt.hash('SuperAdmin@2026', 12)
-  const bendaharaHash = await bcrypt.hash('Bendahara@2026', 12)
+  // Passwords must be supplied via env. No default/fallback values — prevents
+  // shipping known credentials to production.
+  const superAdminPwd = process.env.SEED_SUPERADMIN_PASSWORD
+  const bendaharaPwd = process.env.SEED_BENDAHARA_PASSWORD
+  if (!superAdminPwd || !bendaharaPwd) {
+    throw new Error(
+      '[seed] SEED_SUPERADMIN_PASSWORD dan SEED_BENDAHARA_PASSWORD wajib di-set di env sebelum menjalankan seed.',
+    )
+  }
+  if (superAdminPwd.length < 12 || bendaharaPwd.length < 12) {
+    throw new Error('[seed] Password minimal 12 karakter.')
+  }
 
+  const superAdminHash = await bcrypt.hash(superAdminPwd, 12)
+  const bendaharaHash = await bcrypt.hash(bendaharaPwd, 12)
+
+  // IMPORTANT: passwordHash hanya diset pada CREATE. Re-run seed TIDAK akan
+  // menimpa password user existing (jaga-jaga di prod).
   const superAdmin = await prisma.user.upsert({
     where: { email: 'superadmin@sman1dps.sch.id' },
     update: {
-      passwordHash: superAdminHash,
       nama: 'Super Admin',
       role: 'SUPER_ADMIN',
       isActive: true,
@@ -41,7 +55,6 @@ async function main() {
   const bendahara = await prisma.user.upsert({
     where: { email: 'bendahara@sman1dps.sch.id' },
     update: {
-      passwordHash: bendaharaHash,
       nama: 'Bendahara',
       role: 'BENDAHARA',
       isActive: true,

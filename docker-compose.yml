@@ -24,6 +24,8 @@ services:
       - internal
     expose:
       - "3000"
+    volumes:
+      - spp_uploads:/app/data/uploads
 
   db:
     image: postgres:16-alpine
@@ -95,6 +97,7 @@ volumes:
   caddy_data:
   caddy_config:
   caddy_logs:
+  spp_uploads:
 
 networks:
   internal:

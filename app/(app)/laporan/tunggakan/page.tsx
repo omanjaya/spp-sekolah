@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Download, Filter } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,24 +39,35 @@ function triggerCsvDownload(filename: string, rows: string[][]) {
   URL.revokeObjectURL(url);
 }
 
-export default function LaporanTunggakanPage() {
-  const [angkatanInput, setAngkatanInput] = useState('');
-  const [rombelInput, setRombelInput] = useState('');
-  const [minBulanInput, setMinBulanInput] = useState('2');
-  const [params, setParams] = useState<UseTunggakanParams>({ minBulan: 2, limit: 500 });
+function LaporanTunggakanContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
 
-  function applyFilter() {
-    const angkatan = angkatanInput ? Number(angkatanInput) : undefined;
-    const minBulan = minBulanInput ? Number(minBulanInput) : undefined;
-    setParams({
-      angkatan: angkatan && !Number.isNaN(angkatan) ? angkatan : undefined,
-      rombelId: rombelInput.trim() || undefined,
-      minBulan: minBulan && !Number.isNaN(minBulan) ? minBulan : undefined,
-      limit: 500,
-    });
+  // Read filter values from URL
+  const angkatanInput = searchParams.get('angkatan') ?? '';
+  const rombelInput = searchParams.get('rombelId') ?? '';
+  const minBulanInput = searchParams.get('minBulan') ?? '2';
+
+  // Update URL when a filter key changes
+  function setFilter(key: string, value: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value) params.set(key, value);
+    else params.delete(key);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
-  const { data, isLoading, isFetching } = useTunggakan(params);
+  // Derive query params from URL
+  const angkatanNum = angkatanInput ? Number(angkatanInput) : undefined;
+  const minBulanNum = minBulanInput ? Number(minBulanInput) : undefined;
+  const queryParams: UseTunggakanParams = {
+    angkatan: angkatanNum && !Number.isNaN(angkatanNum) ? angkatanNum : undefined,
+    rombelId: rombelInput.trim() || undefined,
+    minBulan: minBulanNum && !Number.isNaN(minBulanNum) ? minBulanNum : undefined,
+    limit: 500,
+  };
+
+  const { data, isLoading, isFetching } = useTunggakan(queryParams);
   const rows = data ?? [];
 
   const totalTunggakan = rows.reduce((acc, r) => acc + r.totalTunggakan, 0);
@@ -101,7 +113,7 @@ export default function LaporanTunggakanPage() {
                 inputMode="numeric"
                 placeholder="2023"
                 value={angkatanInput}
-                onChange={(e) => setAngkatanInput(e.target.value)}
+                onChange={(e) => setFilter('angkatan', e.target.value)}
               />
             </div>
             <div className="space-y-1.5">
@@ -110,7 +122,7 @@ export default function LaporanTunggakanPage() {
                 id="rombel"
                 placeholder="opsional"
                 value={rombelInput}
-                onChange={(e) => setRombelInput(e.target.value)}
+                onChange={(e) => setFilter('rombelId', e.target.value)}
               />
             </div>
             <div className="space-y-1.5">
@@ -120,12 +132,17 @@ export default function LaporanTunggakanPage() {
                 inputMode="numeric"
                 placeholder="2"
                 value={minBulanInput}
-                onChange={(e) => setMinBulanInput(e.target.value)}
+                onChange={(e) => setFilter('minBulan', e.target.value)}
               />
             </div>
             <div className="flex items-end gap-2">
-              <Button variant="secondary" onClick={applyFilter} disabled={isFetching}>
-                Terapkan
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => router.replace(pathname, { scroll: false })}
+                disabled={isFetching || (!angkatanInput && !rombelInput && minBulanInput === '2')}
+              >
+                Reset Filter
               </Button>
             </div>
           </div>
@@ -160,5 +177,13 @@ export default function LaporanTunggakanPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function LaporanTunggakanPage() {
+  return (
+    <Suspense>
+      <LaporanTunggakanContent />
+    </Suspense>
   );
 }

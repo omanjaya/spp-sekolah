@@ -34,7 +34,18 @@ export async function GET(req: NextRequest): Promise<Response> {
   )
   const { limit: _l, page: _p, ...rest } = params
   void _l; void _p
-  const rows = await pembayaranService.listAll({ ...rest, limit: 100_000, page: 1 } as typeof params)
+  const rowsRaw = await pembayaranService.listAll({ ...rest, limit: 100_000, page: 1 } as typeof params)
+
+  // Sort: NIS asc → tahun ajaran asc → bulan urut tahun ajaran (Juli=0 … Juni=11)
+  const monthOrder = (m: number) => (m >= 7 ? m - 7 : m + 5)
+  const taStart = (y: number, m: number) => (m >= 7 ? y : y - 1)
+  const rows = [...rowsRaw].sort((a, b) => {
+    const nisCmp = (a.siswa?.nis ?? '').localeCompare(b.siswa?.nis ?? '')
+    if (nisCmp !== 0) return nisCmp
+    const taCmp = taStart(a.periodYear, a.periodMonth) - taStart(b.periodYear, b.periodMonth)
+    if (taCmp !== 0) return taCmp
+    return monthOrder(a.periodMonth) - monthOrder(b.periodMonth)
+  })
 
   const [schoolName, schoolAddress] = await Promise.all([
     getSetting('school.name'),

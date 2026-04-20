@@ -354,7 +354,7 @@ function CreateKwitansiDialog({
 
           {/* ── daftar bulan terpilih ── */}
           {selectedMonths.length > 0 && (
-            <div className="rounded-md border border-slate-200 overflow-hidden">
+            <div className="overflow-x-auto rounded-md border border-slate-200 overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50/60">
@@ -560,7 +560,7 @@ export default function KwitansiPage() {
             />
           ) : (
             <>
-              <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
+              <div className="overflow-x-auto overflow-hidden rounded-md border border-slate-200 bg-white">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-50/60">

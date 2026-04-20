@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server'
 
-import { apiHandler, requireAuth } from '@/lib/api-handler'
+import { apiHandler, requireRole } from '@/lib/api-handler'
+import { ROLES } from '@/core/constants'
 import { idSchema } from '@/lib/validators/common.schema'
 import { keringananUpdateSchema } from '@/lib/validators/keringanan.schema'
 import { keringananService } from '@/services/keringanan.service'
@@ -17,7 +18,7 @@ function pickId(raw: string | string[] | undefined): string {
 
 export async function GET(req: NextRequest, ctx: RouteParams): Promise<Response> {
   return apiHandler(async () => {
-    await requireAuth()
+    await requireRole([ROLES.SUPER_ADMIN])
     const { id } = await ctx.params
     return keringananService.getById(pickId(id))
   })(req)
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest, ctx: RouteParams): Promise<Response>
 
 export async function PATCH(req: NextRequest, ctx: RouteParams): Promise<Response> {
   return apiHandler(async () => {
-    await requireAuth()
+    await requireRole([ROLES.SUPER_ADMIN])
     const { id } = await ctx.params
     const body = keringananUpdateSchema.parse(await req.json())
     return keringananService.update(pickId(id), body)
@@ -34,7 +35,7 @@ export async function PATCH(req: NextRequest, ctx: RouteParams): Promise<Respons
 
 export async function DELETE(req: NextRequest, ctx: RouteParams): Promise<Response> {
   return apiHandler(async () => {
-    await requireAuth()
+    await requireRole([ROLES.SUPER_ADMIN])
     const { id } = await ctx.params
     const resolved = pickId(id)
     await keringananService.remove(resolved)

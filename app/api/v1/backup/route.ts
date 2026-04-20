@@ -18,16 +18,24 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/api-handler'
 import { ROLES } from '@/core/constants'
 import { startBackup, getRowCounts } from '@/services/backup.service'
+import { prisma } from '@/lib/db'
 import logger from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
 export const runtime  = 'nodejs'
 
+// Singleton lock — hanya 1 backup full download yang boleh jalan bersamaan.
+// Mencegah paralel-download memukul DB connection pool.
+let backupInFlight = false
+
 /** GET /api/v1/backup?countsOnly=true — hanya mengembalikan row counts (untuk UI preview). */
 export async function GET(req: NextRequest): Promise<Response> {
-  await requireRole([ROLES.SUPER_ADMIN, ROLES.BENDAHARA])
-
   const countsOnly = req.nextUrl.searchParams.get('countsOnly') === 'true'
+
+  // countsOnly (preview UI) boleh diakses BENDAHARA; full download hanya SUPER_ADMIN
+  const actor = countsOnly
+    ? await requireRole([ROLES.SUPER_ADMIN, ROLES.BENDAHARA])
+    : await requireRole([ROLES.SUPER_ADMIN])
 
   // ── Hanya row counts (untuk preview di halaman UI) ──────────────────
   if (countsOnly) {
@@ -37,8 +45,16 @@ export async function GET(req: NextRequest): Promise<Response> {
   }
 
   // ── Full backup download ─────────────────────────────────────────────
+  if (backupInFlight) {
+    return NextResponse.json(
+      { success: false, error: { code: 'BACKUP_IN_PROGRESS', message: 'Backup lain sedang berjalan. Coba lagi setelah selesai.' } },
+      { status: 409 },
+    )
+  }
+  backupInFlight = true
+
   const t0 = Date.now()
-  logger.info({ actor: 'backup' }, 'backup: download requested')
+  logger.info({ actor: actor.userId }, 'backup: download requested')
 
   try {
     const { jsonStream } = await startBackup()
@@ -58,18 +74,32 @@ export async function GET(req: NextRequest): Promise<Response> {
         })
         gzipStream.on('end', () => {
           logger.info({ ms: Date.now() - t0 }, 'backup: stream complete')
+          backupInFlight = false
           controller.close()
         })
         gzipStream.on('error', (err: Error) => {
           logger.error({ err }, 'backup: stream error')
+          backupInFlight = false
           controller.error(err)
         })
       },
       cancel() {
+        backupInFlight = false
         gzipStream.destroy()
         nodeReadable.destroy()
       },
     })
+
+    // Audit log — fire-and-forget agar tidak delay streaming response
+    void prisma.auditLog.create({
+      data: {
+        userId: actor.userId,
+        action: 'BACKUP_DOWNLOAD',
+        entity: 'system',
+        ipAddress: req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? null,
+        userAgent: req.headers.get('user-agent') ?? null,
+      },
+    }).catch(err => logger.error({ err }, 'backup: failed to write audit log'))
 
     const date = new Date().toISOString().slice(0, 10)
     return new NextResponse(webStream, {
@@ -82,6 +112,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       },
     })
   } catch (err) {
+    backupInFlight = false
     logger.error({ err }, 'backup: failed')
     return NextResponse.json(
       { success: false, error: { code: 'BACKUP_ERROR', message: 'Gagal membuat backup.' } },

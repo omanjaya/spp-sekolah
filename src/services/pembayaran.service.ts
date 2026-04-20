@@ -5,6 +5,7 @@ import { pembayaranRepo } from '@/repositories/pembayaran.repo'
 import { siswaRepo } from '@/repositories/siswa.repo'
 import { auditLogRepo } from '@/repositories/audit-log.repo'
 import { ConflictError, NotFoundError } from '@/core/errors'
+import { periodeLockService } from './periode-lock.service'
 import { PAGINATION } from '@/core/constants'
 import type {
   PembayaranFilterInput,
@@ -48,6 +49,7 @@ export interface PembayaranDto {
   source: 'IMPORT_EXCEL' | 'PASTE_SPREADSHEET' | 'MANUAL'
   importBatchId: string | null
   catatan: string | null
+  buktiUrl: string | null
   createdAt: string
   updatedAt: string
 }
@@ -131,6 +133,7 @@ export function toDto(p: PembayaranWithRelations): PembayaranDto {
     source: p.source,
     importBatchId: p.importBatchId,
     catatan: p.catatan,
+    buktiUrl: p.buktiUrl ?? null,
     createdAt: p.createdAt.toISOString(),
     updatedAt: p.updatedAt.toISOString(),
   }
@@ -278,31 +281,47 @@ function resolveOrderBy(sortBy?: string | null, sortOrder?: 'asc' | 'desc' | nul
   }
 }
 
-const listInclude = {
-  siswa: {
-    select: {
-      id: true,
-      nis: true,
-      nama: true,
-      angkatan: true,
-      alamat: true,
-      catatan: true,
-      enrollments: {
-        select: {
-          rombel: {
-            select: {
-              id: true,
-              kode: true,
-              grade: true,
-              nomor: true,
-              tahunAjaran: { select: { kode: true } },
+/**
+ * Build the siswa include shape for list/listAll/getById queries.
+ *
+ * N+1 mitigation: when a tahunAjaranId filter is present we push it straight
+ * into the enrollment `where` clause so Postgres returns only the relevant
+ * enrollment(s) instead of the full history for every siswa row.
+ * Without the filter we still cap at `take: 3` to avoid fetching unbounded
+ * enrollment rows per siswa (a student can have at most 3 enrollments across
+ * X/XI/XII, so this never drops valid data).
+ */
+function buildListInclude(tahunAjaranId?: string | null) {
+  return {
+    siswa: {
+      select: {
+        id: true,
+        nis: true,
+        nama: true,
+        angkatan: true,
+        alamat: true,
+        catatan: true,
+        enrollments: {
+          ...(tahunAjaranId ? { where: { tahunAjaranId } } : { take: 3 }),
+          select: {
+            rombel: {
+              select: {
+                id: true,
+                kode: true,
+                grade: true,
+                nomor: true,
+                tahunAjaran: { select: { kode: true } },
+              },
             },
           },
         },
       },
     },
-  },
-} as const
+  } as const
+}
+
+/** Backward-compat alias used by getById / createManual / update / cancel. */
+const listInclude = buildListInclude()
 
 export const pembayaranService = {
   async list(filter: PembayaranFilterInput): Promise<PembayaranListResult> {
@@ -314,13 +333,15 @@ export const pembayaranService = {
 
     const orderBy = resolveOrderBy(filter.sortBy, filter.sortOrder)
 
+    const include = buildListInclude(filter.tahunAjaranId)
+
     const [items, total, sumAgg] = await Promise.all([
       prisma.pembayaran.findMany({
         where,
         orderBy,
         skip,
         take: limit,
-        include: listInclude,
+        include,
       }),
       prisma.pembayaran.count({ where }),
       prisma.pembayaran.aggregate({ where, _sum: { amount: true, biayaAdm: true } }),
@@ -349,10 +370,11 @@ export const pembayaranService = {
   async listAll(filter: PembayaranFilterInput): Promise<PembayaranDto[]> {
     const where = buildWhere(filter)
     const orderBy = resolveOrderBy(filter.sortBy, filter.sortOrder)
+    const include = buildListInclude(filter.tahunAjaranId)
     const items = await prisma.pembayaran.findMany({
       where,
       orderBy,
-      include: listInclude,
+      include,
     })
     return items.map(toDto)
   },
@@ -372,6 +394,11 @@ export const pembayaranService = {
   ): Promise<PembayaranDto> {
     const siswa = await siswaRepo.findById(input.siswaId)
     if (!siswa) throw new NotFoundError('Siswa tidak ditemukan.')
+
+    const locked = await periodeLockService.isLocked(input.periodYear, input.periodMonth)
+    if (locked) {
+      throw new ConflictError(`Periode ${input.periodYear}/${String(input.periodMonth).padStart(2, '0')} sudah dikunci.`)
+    }
 
     const existing = await pembayaranRepo.findByPeriod(
       input.siswaId,
@@ -426,6 +453,11 @@ export const pembayaranService = {
     const current = await pembayaranRepo.findById(id)
     if (!current) throw new NotFoundError('Pembayaran tidak ditemukan.')
 
+    const locked = await periodeLockService.isLocked(current.periodYear, current.periodMonth)
+    if (locked) {
+      throw new ConflictError(`Periode ${current.periodYear}/${String(current.periodMonth).padStart(2, '0')} sudah dikunci.`)
+    }
+
     const updated = await prisma.pembayaran.update({
       where: { id },
       data: {
@@ -454,6 +486,11 @@ export const pembayaranService = {
     if (!current) throw new NotFoundError('Pembayaran tidak ditemukan.')
     if (current.statusBayar === 'DIBATALKAN') {
       throw new ConflictError('Pembayaran ini sudah dibatalkan sebelumnya.')
+    }
+
+    const locked = await periodeLockService.isLocked(current.periodYear, current.periodMonth)
+    if (locked) {
+      throw new ConflictError(`Periode ${current.periodYear}/${String(current.periodMonth).padStart(2, '0')} sudah dikunci.`)
     }
 
     const updated = await prisma.pembayaran.update({

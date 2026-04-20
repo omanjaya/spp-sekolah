@@ -1,12 +1,10 @@
 'use client';
 
-import { FormEvent, useRef } from 'react';
 import { LogOut, Search, User } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { useCommandStore } from '@/store/command-store';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,11 +22,10 @@ function initialsFromName(name: string | null | undefined): string {
 }
 
 export function Topbar() {
-  const router = useRouter();
   const { data: session } = useSession();
   const user = session?.user;
   const initials = initialsFromName(user?.nama);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const { setOpen } = useCommandStore();
 
   const roleLabel: Record<string, string> = {
     SUPER_ADMIN: 'Super Admin',
@@ -37,29 +34,21 @@ export function Topbar() {
     VIEWER: 'Viewer',
   };
 
-  function handleSearch(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const query = inputRef.current?.value.trim();
-    if (!query) return;
-    router.push(`/siswa?search=${encodeURIComponent(query)}`);
-  }
-
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b border-slate-200 bg-white px-4 lg:px-6">
       <div className="flex flex-1 items-center gap-3 pl-10 lg:pl-0">
-        <form onSubmit={handleSearch} role="search" className="relative w-full max-w-sm">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-            aria-hidden="true"
-          />
-          <Input
-            ref={inputRef}
-            type="search"
-            placeholder="Cari siswa / NIS"
-            className="pl-9"
-            aria-label="Cari siswa atau NIS"
-          />
-        </form>
+        <button
+          onClick={() => setOpen(true)}
+          className="relative flex w-full max-w-sm items-center rounded-md border border-input bg-transparent px-3 py-1.5 text-sm text-slate-400 shadow-sm hover:bg-slate-50"
+          aria-label="Buka pencarian (Cmd+K)"
+          type="button"
+        >
+          <Search className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>Cari...</span>
+          <kbd className="ml-auto hidden rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 lg:inline">
+            ⌘K
+          </kbd>
+        </button>
       </div>
 
       <DropdownMenu>

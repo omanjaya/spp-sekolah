@@ -140,7 +140,7 @@ export default function LaporanPemasukanPage() {
               description="Tidak ada pembayaran yang tercatat untuk periode ini."
             />
           ) : (
-            <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
+            <div className="overflow-x-auto overflow-hidden rounded-md border border-slate-200 bg-white">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50/60">

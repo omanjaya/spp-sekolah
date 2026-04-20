@@ -41,9 +41,11 @@ playwright/.cache/
 prisma/*.db
 prisma/*.db-journal
 scripts/backfill-data/
+data/uploads/
 scripts/missing_payments.json
 scripts/pindahan.json
 scripts/waivers.json
 test-results/
 yarn-debug.log*
 yarn-error.log*
+.claude/

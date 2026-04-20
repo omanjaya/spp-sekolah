@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server'
 
-import { apiHandler, requireAuth } from '@/lib/api-handler'
+import { apiHandler, requireRole } from '@/lib/api-handler'
+import { ROLES } from '@/core/constants'
 import {
   keringananCreateSchema,
   keringananFilterSchema,
@@ -11,7 +12,7 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export const GET = apiHandler(async (req: NextRequest) => {
-  await requireAuth()
+  await requireRole([ROLES.SUPER_ADMIN])
   const filter = keringananFilterSchema.parse(
     Object.fromEntries(req.nextUrl.searchParams.entries()),
   )
@@ -20,7 +21,7 @@ export const GET = apiHandler(async (req: NextRequest) => {
 })
 
 export const POST = apiHandler(async (req: NextRequest) => {
-  const user = await requireAuth()
+  const user = await requireRole([ROLES.SUPER_ADMIN])
   const body = keringananCreateSchema.parse(await req.json())
   const data = await keringananService.create(body, user.userId)
   return data

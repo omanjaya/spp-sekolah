@@ -17,9 +17,11 @@ import {
   GraduationCap,
   History,
   LayoutDashboard,
+  Lock,
   Menu,
   PencilLine,
   Receipt,
+  RotateCcw,
   School,
   Settings,
   Table2,
@@ -27,10 +29,13 @@ import {
   TrendingUp,
   Upload,
   Users,
+  XCircle,
   type LucideIcon,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
+import { useSession } from 'next-auth/react';
 import { apiFetch } from '@/lib/http';
+import { ROLES, type Role } from '@/core/constants';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -50,13 +55,25 @@ interface NavItem {
   href: string;
   icon: LucideIcon;
   children?: NavItem[];
+  /** Roles yang boleh melihat item ini. Kalau undefined, semua role bisa. */
+  allow?: ReadonlyArray<Role>;
 }
+
+const ADMIN_ONLY: ReadonlyArray<Role> = [ROLES.SUPER_ADMIN];
 
 const NAV: NavItem[] = [
   { label: 'Ringkasan', href: '/', icon: LayoutDashboard },
-  { label: 'Data Siswa', href: '/siswa', icon: Users },
-  { label: 'Rombel', href: '/rombel', icon: School },
-  { label: 'Naik Kelas', href: '/naik-kelas', icon: ArrowUpCircle },
+  {
+    label: 'Master Data',
+    href: '/siswa',
+    icon: Users,
+    children: [
+      { label: 'Data Siswa', href: '/siswa', icon: Users },
+      { label: 'Rombel', href: '/rombel', icon: School },
+      { label: 'Naik Kelas', href: '/naik-kelas', icon: ArrowUpCircle, allow: ADMIN_ONLY },
+      { label: 'Tagihan BPD', href: '/master-data/tagihan', icon: FileSpreadsheet },
+    ],
+  },
   {
     label: 'Pembayaran',
     href: '/pembayaran/manual',
@@ -65,6 +82,7 @@ const NAV: NavItem[] = [
       { label: 'Input Manual', href: '/pembayaran/manual', icon: PencilLine },
       { label: 'Paste Data', href: '/pembayaran/paste', icon: Clipboard },
       { label: 'Import Excel', href: '/pembayaran/import', icon: Upload },
+      { label: 'Permintaan Cancel', href: '/cancel-request', icon: XCircle },
     ],
   },
   {
@@ -76,43 +94,82 @@ const NAV: NavItem[] = [
       { label: 'Import Excel', href: '/rekonsiliasi/import', icon: Upload },
     ],
   },
-  { label: 'Keringanan', href: '/keringanan', icon: Award },
-  { label: 'Pelunasan', href: '/pelunasan', icon: CheckCircle2 },
+  {
+    label: 'Transaksi Khusus',
+    href: '/keringanan',
+    icon: Award,
+    allow: ADMIN_ONLY,
+    children: [
+      { label: 'Keringanan', href: '/keringanan', icon: Award },
+      { label: 'Pelunasan', href: '/pelunasan', icon: CheckCircle2 },
+      { label: 'Refund', href: '/refund', icon: RotateCcw },
+    ],
+  },
   { label: 'Kwitansi', href: '/kwitansi', icon: FileText },
-  { label: 'Laporan Komite', href: '/ekspor', icon: Download },
   {
     label: 'Laporan',
-    href: '/laporan/tunggakan',
+    href: '/ekspor',
     icon: FileBarChart,
     children: [
+      { label: 'Laporan Komite', href: '/ekspor', icon: Download },
       { label: 'Tunggakan', href: '/laporan/tunggakan', icon: TrendingDown },
       { label: 'Pemasukan', href: '/laporan/pemasukan', icon: TrendingUp },
-      { label: 'Audit Log', href: '/laporan/audit', icon: ClipboardList },
+      { label: 'Per Rombel', href: '/laporan/per-rombel', icon: GraduationCap },
+      { label: 'Audit Log', href: '/laporan/audit', icon: ClipboardList, allow: ADMIN_ONLY },
       { label: 'Riwayat Import', href: '/laporan/import-batches', icon: History },
     ],
   },
   {
-    label: 'BPD Upload',
-    href: '/master-data/tagihan',
-    icon: FileSpreadsheet,
+    label: 'Pengaturan',
+    href: '/pengaturan',
+    icon: Settings,
+    allow: ADMIN_ONLY,
     children: [
-      { label: 'Tagihan BPD', href: '/master-data/tagihan', icon: FileSpreadsheet },
+      { label: 'Umum', href: '/pengaturan', icon: Settings },
+      { label: 'Kunci Periode', href: '/pengaturan/periode-lock', icon: Lock },
+      { label: 'Backup Data', href: '/backup', icon: Archive },
     ],
   },
-  { label: 'Backup Data', href: '/backup', icon: Archive },
-  { label: 'Pengaturan', href: '/pengaturan', icon: Settings },
 ];
+
+function canSee(item: NavItem, role: Role | undefined): boolean {
+  if (!item.allow) return true;
+  if (!role) return false;
+  return item.allow.includes(role);
+}
+
+function filterNav(items: NavItem[], role: Role | undefined): NavItem[] {
+  return items
+    .filter((it) => canSee(it, role))
+    .map((it) => (it.children ? { ...it, children: it.children.filter((c) => canSee(c, role)) } : it));
+}
 
 function isActive(pathname: string, href: string): boolean {
   if (href === '/') return pathname === '/';
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function NavList({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+function isGroupActive(pathname: string, item: NavItem): boolean {
+  if (isActive(pathname, item.href)) return true;
+  if (!item.children) return false;
+  return item.children.some((c) => isActive(pathname, c.href));
+}
+
+function NavList({
+  pathname,
+  role,
+  onNavigate,
+}: {
+  pathname: string;
+  role: Role | undefined;
+  onNavigate?: () => void;
+}) {
+  const items = filterNav(NAV, role);
   return (
     <ul className="space-y-1">
-      {NAV.map((item) => {
+      {items.map((item) => {
         const active = isActive(pathname, item.href);
+        const expanded = isGroupActive(pathname, item);
         const Icon = item.icon;
         return (
           <li key={item.href}>
@@ -130,7 +187,7 @@ function NavList({ pathname, onNavigate }: { pathname: string; onNavigate?: () =
               <Icon className="h-4 w-4" aria-hidden="true" />
               <span>{item.label}</span>
             </Link>
-            {item.children && active ? (
+            {item.children && expanded ? (
               <ul className="ml-6 mt-1 space-y-1 border-l border-slate-200 pl-3">
                 {item.children.map((child) => {
                   const childActive = pathname === child.href;
@@ -202,6 +259,8 @@ function TahunAjaranFooter({
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const role = session?.user?.role as Role | undefined;
   const {
     data: activeTahun,
     isLoading: tahunLoading,
@@ -230,7 +289,7 @@ export function Sidebar() {
           <SheetContent side="left" className="flex w-64 flex-col p-0">
             <SidebarBrand />
             <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Navigasi utama">
-              <NavList pathname={pathname} />
+              <NavList pathname={pathname} role={role} />
             </nav>
             <TahunAjaranFooter
               activeTahun={activeTahun}
@@ -249,7 +308,7 @@ export function Sidebar() {
         <SidebarBrand />
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
-          <NavList pathname={pathname} />
+          <NavList pathname={pathname} role={role} />
         </nav>
 
         <TahunAjaranFooter

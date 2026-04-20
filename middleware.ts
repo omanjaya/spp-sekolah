@@ -26,6 +26,14 @@ interface RoleGuard {
 
 const ROLE_GUARDS: ReadonlyArray<RoleGuard> = [
   { prefix: '/pengaturan/pengguna', allow: [ROLES.SUPER_ADMIN] },
+  { prefix: '/pengaturan/periode-lock', allow: [ROLES.SUPER_ADMIN] },
+  { prefix: '/backup', allow: [ROLES.SUPER_ADMIN] },
+  { prefix: '/refund', allow: [ROLES.SUPER_ADMIN] },
+  { prefix: '/cancel-request', allow: [ROLES.SUPER_ADMIN, ROLES.BENDAHARA] },
+  { prefix: '/keringanan', allow: [ROLES.SUPER_ADMIN] },
+  { prefix: '/pelunasan', allow: [ROLES.SUPER_ADMIN] },
+  { prefix: '/naik-kelas', allow: [ROLES.SUPER_ADMIN] },
+  { prefix: '/master-data', allow: [ROLES.SUPER_ADMIN, ROLES.BENDAHARA, ROLES.TU] },
 ]
 
 /** Paths that do not require auth. */
