@@ -758,6 +758,7 @@ export async function* restoreBackup(
           createdById:  s(r['createdById']),
           createdAt:    toDate(r['createdAt']) ?? new Date(),
           updatedAt:    toDate(r['updatedAt']) ?? new Date(),
+          deletedAt:    toDate(r['deletedAt']),
         })),
         skipDuplicates: true,
       }),

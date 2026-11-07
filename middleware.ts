@@ -41,6 +41,8 @@ const PUBLIC_PATH_PREFIXES: ReadonlyArray<string> = [
   '/login',
   '/api/v1/auth',
   '/api/health',
+  // API antarpeladen: autentikasi token Bearer ditangani di route handler.
+  '/api/integrations',
   '/_next',
   '/favicon.ico',
   '/robots.txt',

@@ -78,7 +78,7 @@ export const refundService = {
     const page = filter.page ?? PAGINATION.DEFAULT_PAGE
     const limit = filter.limit ?? PAGINATION.DEFAULT_LIMIT
 
-    const where: Prisma.RefundWhereInput = {}
+    const where: Prisma.RefundWhereInput = { deletedAt: null }
     if (filter.siswaId) where.siswaId = filter.siswaId
     if (filter.dateFrom ?? filter.dateTo) {
       where.tanggal = {}
@@ -109,7 +109,7 @@ export const refundService = {
   },
 
   async getById(id: string): Promise<RefundDto> {
-    const row = await prisma.refund.findUnique({ where: { id }, include: INCLUDE })
+    const row = await prisma.refund.findFirst({ where: { id, deletedAt: null }, include: INCLUDE })
     if (!row) throw new NotFoundError('Data refund tidak ditemukan.')
     return toDto(row)
   },
@@ -134,6 +134,15 @@ export const refundService = {
         }
       }
 
+      // Sentuh updatedAt pembayaran asal supaya sinkronisasi API integrasi
+      // bendahara mengirim ulang pembayaran ini beserta refund-nya.
+      if (input.pembayaranId) {
+        await tx.pembayaran.update({
+          where: { id: input.pembayaranId },
+          data: { updatedAt: new Date() },
+        })
+      }
+
       return tx.refund.create({
         data: {
           siswa: { connect: { id: input.siswaId } },
@@ -151,9 +160,20 @@ export const refundService = {
     return toDto(row)
   },
 
+  /**
+   * Soft delete: baris tetap disimpan dengan `deletedAt` sebagai tombstone,
+   * agar aplikasi bendahara yang sudah menyinkronkan refund ini bisa tahu
+   * refund tersebut dibatalkan.
+   */
   async delete(id: string): Promise<void> {
     const existing = await prisma.refund.findUnique({ where: { id } })
-    if (!existing) throw new NotFoundError('Data refund tidak ditemukan.')
-    await prisma.refund.delete({ where: { id } })
+    if (!existing || existing.deletedAt) throw new NotFoundError('Data refund tidak ditemukan.')
+    const now = new Date()
+    await prisma.$transaction([
+      prisma.refund.update({ where: { id }, data: { deletedAt: now } }),
+      ...(existing.pembayaranId
+        ? [prisma.pembayaran.update({ where: { id: existing.pembayaranId }, data: { updatedAt: now } })]
+        : []),
+    ])
   },
 }

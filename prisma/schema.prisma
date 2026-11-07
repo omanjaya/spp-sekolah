@@ -163,6 +163,7 @@ model Pembayaran {
   @@index([tanggalTransaksi])
   @@index([kodeCabang])
   @@index([siswaId, periodYear, periodMonth, statusBayar])
+  @@index([updatedAt, id]) // keyset sinkronisasi API integrasi bendahara
 }
 
 enum StatusBayar {
@@ -406,6 +407,8 @@ model Refund {
   createdById  String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  /// Soft delete — baris tetap ada sebagai tombstone agar sinkronisasi API integrasi tahu refund dibatalkan.
+  deletedAt    DateTime?
 
   siswa      Siswa       @relation(fields: [siswaId], references: [id], onDelete: Restrict)
   pembayaran Pembayaran? @relation(fields: [pembayaranId], references: [id], onDelete: SetNull)
@@ -414,6 +417,7 @@ model Refund {
   @@index([siswaId])
   @@index([tanggal])
   @@index([createdAt])
+  @@index([updatedAt, id])
 }
 
 // ─── Cancel Request Workflow (B7) ─────────────────────────
