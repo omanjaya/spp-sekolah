@@ -121,7 +121,7 @@ export function PembayaranManualForm({ onSuccess }: { onSuccess?: () => void }) 
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <FormFieldWrapper label="Nominal SPP" required>
+        <FormFieldWrapper label="Nominal Sumbangan Komite" required>
           <CurrencyInput value={amount} onChange={setAmount} />
         </FormFieldWrapper>
         <FormFieldWrapper label="Biaya Adm">

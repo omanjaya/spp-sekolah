@@ -203,6 +203,7 @@ enum JenisKeringanan {
   BEASISWA
   KELUARGA_TIDAK_MAMPU
   PINDAHAN
+  IJAZAH
   LAINNYA
 }
 
@@ -251,20 +252,28 @@ model Kwitansi {
 }
 
 model KwitansiItem {
-  id           String   @id @default(cuid())
-  kwitansiId   String
-  periodYear   Int
-  periodMonth  Int
-  amount       Decimal  @db.Decimal(12, 2)
-  keterangan   String?
-  pembayaranId String?  // optional link ke record Pembayaran
-  createdAt    DateTime @default(now())
+  id              String            @id @default(cuid())
+  kwitansiId      String
+  periodYear      Int
+  periodMonth     Int
+  amount          Decimal           @db.Decimal(12, 2)
+  keterangan      String?
+  pembayaranId    String?           // optional link ke record Pembayaran
+  kategori        KwitansiKategori  @default(REGULER)
+  jenisKeringanan JenisKeringanan?  // hanya relevan bila kategori = KERINGANAN
+  createdAt       DateTime          @default(now())
 
   kwitansi   Kwitansi    @relation(fields: [kwitansiId], references: [id], onDelete: Cascade)
   pembayaran Pembayaran? @relation(fields: [pembayaranId], references: [id], onDelete: SetNull)
 
   @@unique([kwitansiId, periodYear, periodMonth])
   @@index([pembayaranId])
+  @@index([kategori])
+}
+
+enum KwitansiKategori {
+  REGULER
+  KERINGANAN
 }
 
 // ─── Import & Audit ───────────────────────────────────────
@@ -329,10 +338,19 @@ model TagihanBpdMaster {
   keterangan String @default("-")
   instansi  String  @default("SMAN_1_DENPASAR")
   alamat    String  @default("Jl Kamboja No 4")
+  /// Asal-usul row: BPD (dari file asik.bpdbali), MANUAL (input per-siswa), AUTO_GENERATE (bulk generate dari tunggakan)
+  sumber    TagihanSumber @default(BPD)
 
   @@unique([nis, tahun, bulan])
   @@index([nis])
   @@index([tahun, bulan])
+  @@index([sumber])
+}
+
+enum TagihanSumber {
+  BPD
+  MANUAL
+  AUTO_GENERATE
 }
 
 model Setting {

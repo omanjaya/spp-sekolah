@@ -228,7 +228,7 @@ function SidebarBrand() {
       </div>
       <div className="flex min-w-0 flex-col">
         <span className="truncate text-sm font-semibold text-slate-900">SMAN 1 Denpasar</span>
-        <span className="truncate text-xs text-slate-500">Sistem Pembayaran SPP</span>
+        <span className="truncate text-xs text-slate-500">Sistem Pembayaran Sumbangan Komite</span>
       </div>
     </div>
   );

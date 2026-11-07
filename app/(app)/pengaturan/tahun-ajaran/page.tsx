@@ -80,7 +80,7 @@ export default function TahunAjaranPage() {
       },
       {
         id: 'nominal',
-        header: 'Nominal SPP',
+        header: 'Nominal Sumbangan Komite',
         cell: ({ row }) => (
           <span className="font-mono">{formatRp(row.original.nominalSppDefault)}</span>
         ),
@@ -171,7 +171,7 @@ export default function TahunAjaranPage() {
     <div className="space-y-6">
       <PageHeader
         title="Tahun Ajaran"
-        description="Kelola periode akademik dan nominal SPP default."
+        description="Kelola periode akademik dan nominal Sumbangan Komite default."
         actions={
           <Button
             onClick={() => {

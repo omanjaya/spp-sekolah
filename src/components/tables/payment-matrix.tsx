@@ -236,6 +236,10 @@ function shortLabel(status: MatrixCell['status']): string {
       return 'BEA'
     case 'KELUARGA_TIDAK_MAMPU':
       return 'KTM'
+    case 'PINDAHAN':
+      return 'PINDAH'
+    case 'IJAZAH':
+      return 'IJAZAH'
     case 'LAINNYA':
       return 'BEBAS'
     default:

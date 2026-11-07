@@ -11,7 +11,7 @@
  *  - Tabel kecil dibaca sekaligus.
  */
 
-import { gunzip } from 'node:zlib'
+import { gunzip, type InputType, type ZlibOptions } from 'node:zlib'
 import { promisify } from 'node:util'
 import bcrypt from 'bcryptjs'
 
@@ -20,7 +20,8 @@ import { prisma } from '@/lib/db'
 import logger from '@/lib/logger'
 
 export const BACKUP_VERSION = '1.0'
-const gunzipAsync = promisify(gunzip)
+const gunzipAsync = promisify(gunzip) as (buf: InputType, options?: ZlibOptions) => Promise<Buffer>
+const MAX_RESTORE_JSON_BYTES = 512 * 1024 * 1024
 
 // ─── Tipe manifest ──────────────────────────────────────────────────────────
 
@@ -370,10 +371,18 @@ export async function* restoreBackup(
   // 1. Dekompresi + parse JSON
   let parsed: Record<string, unknown>
   try {
-    const jsonBuffer = await gunzipAsync(gzipBuffer)
+    // Batasi hasil dekompresi — file gzip kecil bisa mengembang jadi GB (gzip bomb)
+    // dan membuat proses OOM. 512 MiB juga ≈ batas panjang string V8.
+    const jsonBuffer = await gunzipAsync(gzipBuffer, { maxOutputLength: MAX_RESTORE_JSON_BYTES })
     parsed = JSON.parse(jsonBuffer.toString('utf8')) as Record<string, unknown>
-  } catch {
-    yield { type: 'error', message: 'File tidak valid atau korup.' }
+  } catch (err) {
+    const tooLarge = err instanceof RangeError || (err as { code?: string }).code === 'ERR_BUFFER_TOO_LARGE'
+    yield {
+      type: 'error',
+      message: tooLarge
+        ? `Isi backup melebihi ${MAX_RESTORE_JSON_BYTES / 1024 / 1024} MB setelah didekompresi.`
+        : 'File tidak valid atau korup.',
+    }
     return
   }
 
@@ -691,7 +700,7 @@ export async function* restoreBackup(
           siswaId:     s(r['siswaId']),
           periodYear:  n(r['periodYear']),
           periodMonth: n(r['periodMonth']),
-          jenis:       (['JUARA','OSN','JUARA_UMUM','BEASISWA','KELUARGA_TIDAK_MAMPU','PINDAHAN','LAINNYA'].includes(s(r['jenis'])) ? s(r['jenis']) : 'LAINNYA') as 'JUARA' | 'OSN' | 'JUARA_UMUM' | 'BEASISWA' | 'KELUARGA_TIDAK_MAMPU' | 'PINDAHAN' | 'LAINNYA',
+          jenis:       (['JUARA','OSN','JUARA_UMUM','BEASISWA','KELUARGA_TIDAK_MAMPU','PINDAHAN','IJAZAH','LAINNYA'].includes(s(r['jenis'])) ? s(r['jenis']) : 'LAINNYA') as 'JUARA' | 'OSN' | 'JUARA_UMUM' | 'BEASISWA' | 'KELUARGA_TIDAK_MAMPU' | 'PINDAHAN' | 'IJAZAH' | 'LAINNYA',
           persentase:  n(r['persentase']),
           alasan:      opt(r['alasan']),
           buktiUrl:    opt(r['buktiUrl']),

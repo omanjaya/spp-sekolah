@@ -3,14 +3,15 @@ import { PAGINATION } from '@/core/constants'
 
 /**
  * Prisma `cuid()` ids are 25 char base36. We allow cuid2 (24+) too by not
- * hard-fixing the length. Use `.cuid()` to enforce alphanumeric shape.
+ * hard-fixing the length. Also allows underscores and hyphens for IDs
+ * yang di-generate manual saat bulk seed / backfill (mis. `siswa_2027_26510`).
  */
 export const idSchema = z
   .string({ required_error: 'ID wajib diisi.' })
   .trim()
   .min(1, 'ID tidak boleh kosong.')
   .max(64, 'ID tidak valid.')
-  .regex(/^[a-z0-9]+$/i, 'Format ID tidak valid.')
+  .regex(/^[a-z0-9_-]+$/i, 'Format ID tidak valid.')
 
 export const paginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(PAGINATION.DEFAULT_PAGE),

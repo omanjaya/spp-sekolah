@@ -29,6 +29,9 @@ if (process.env.NODE_ENV === 'production') {
 
 const isProd = process.env.NODE_ENV === 'production'
 
+/** Hash bcrypt (cost 12) dari string acak — hanya untuk menyamakan waktu respon. */
+const DUMMY_PASSWORD_HASH = '$2a$12$26uMaOCMSgjbGknoHhOH5Ori0FNwo4W1drXvhfYzgm7aSuo/veLum'
+
 export const authConfig = {
   basePath: '/api/v1/auth',
   session: {
@@ -60,7 +63,9 @@ export const authConfig = {
         password: { label: 'Kata sandi', type: 'password' },
       },
       async authorize(raw) {
-        const rawEmail = (raw as { email?: string }).email ?? 'unknown'
+        // Normalisasi sama seperti loginSchema (trim + lowercase) supaya variasi
+        // kapitalisasi / spasi tidak menghasilkan bucket rate-limit baru.
+        const rawEmail = String((raw as { email?: unknown }).email ?? 'unknown').trim().toLowerCase()
         // Dual-key rate limit — blok per-email DAN per-IP, supaya attacker tidak
         // bisa round-robin banyak email dari satu IP.
         let ip = 'unknown'
@@ -96,11 +101,15 @@ export const authConfig = {
         })
 
         if (!user) {
+          // Tetap jalankan bcrypt supaya waktu respon sama dengan password salah
+          // (cegah enumerasi email lewat timing).
+          await bcrypt.compare(password, DUMMY_PASSWORD_HASH)
           logger.info({ email }, 'auth.authorize: user not found')
           return null
         }
 
         if (!user.isActive) {
+          await bcrypt.compare(password, DUMMY_PASSWORD_HASH)
           logger.info({ userId: user.id }, 'auth.authorize: account inactive')
           return null
         }

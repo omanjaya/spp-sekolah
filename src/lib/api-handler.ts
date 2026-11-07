@@ -9,6 +9,7 @@ import {
 } from '@/core/errors'
 import { ERROR_CODES, HTTP_STATUS, type Role } from '@/core/constants'
 import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/db'
 import logger from '@/lib/logger'
 import type { ApiErrorResponse, ApiMeta, ApiSuccess } from '@/types/api'
 
@@ -157,8 +158,37 @@ export function apiHandler(handler: any): any {
   return (req: NextRequest, ctx?: RouteContext) => runHandler(handler, req, ctx)
 }
 
+// Status akun (aktif + role) dibaca ulang dari DB, di-cache singkat. JWT hanya
+// menyimpan role saat login, jadi tanpa ini user yang dinonaktifkan / diturunkan
+// role-nya tetap punya akses selama cookie masih dipakai.
+// Simple TTL cache — lru-cache has Turbopack ESM resolution issues
+const ACCOUNT_CACHE_TTL_MS = 30_000
+const ACCOUNT_CACHE_MAX = 500
+const accountCache = new Map<string, { isActive: boolean; role: Role; expiresAt: number }>()
+
+async function loadAccount(userId: string): Promise<{ isActive: boolean; role: Role } | null> {
+  const hit = accountCache.get(userId)
+  if (hit && Date.now() <= hit.expiresAt) return hit
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { isActive: true, role: true },
+  })
+  if (!user) {
+    accountCache.delete(userId)
+    return null
+  }
+  if (accountCache.size >= ACCOUNT_CACHE_MAX) {
+    const oldest = accountCache.keys().next().value
+    if (oldest) accountCache.delete(oldest)
+  }
+  const entry = { isActive: user.isActive, role: user.role as Role, expiresAt: Date.now() + ACCOUNT_CACHE_TTL_MS }
+  accountCache.set(userId, entry)
+  return entry
+}
+
 /**
- * Guard: require an authenticated session. Throws `UnauthorizedError` if none.
+ * Guard: require an authenticated session. Throws `UnauthorizedError` if none,
+ * or if the account was deleted / deactivated after the session was issued.
  */
 export async function requireAuth(): Promise<{
   userId: string
@@ -170,11 +200,16 @@ export async function requireAuth(): Promise<{
   if (!session?.user?.userId) {
     throw new UnauthorizedError()
   }
+  const account = await loadAccount(session.user.userId)
+  if (!account || !account.isActive) {
+    throw new UnauthorizedError()
+  }
   return {
     userId: session.user.userId,
     email: session.user.email ?? '',
     nama: session.user.nama,
-    role: session.user.role,
+    // Role terbaru dari DB, bukan yang tersimpan di token saat login.
+    role: account.role,
   }
 }
 

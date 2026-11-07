@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server'
 
-import { apiHandler, requireAuth } from '@/lib/api-handler'
+import { apiHandler, requireRole } from '@/lib/api-handler'
+import { ROLES } from '@/core/constants'
 import { idSchema } from '@/lib/validators/common.schema'
 import { tahunAjaranService } from '@/services/tahun-ajaran.service'
 
@@ -16,7 +17,7 @@ function pickId(raw: string | string[] | undefined): string {
 
 export async function POST(req: NextRequest, ctx: RouteParams): Promise<Response> {
   return apiHandler(async () => {
-    await requireAuth()
+    await requireRole([ROLES.SUPER_ADMIN, ROLES.BENDAHARA])
     const { id } = await ctx.params
     return tahunAjaranService.setActive(pickId(id))
   })(req)

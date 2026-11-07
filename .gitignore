@@ -49,3 +49,6 @@ test-results/
 yarn-debug.log*
 yarn-error.log*
 .claude/
+
+# File upload lokal (data siswa) — jangan masuk git / build context
+uploads/

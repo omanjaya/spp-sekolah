@@ -107,8 +107,8 @@ export const pdfStyles = StyleSheet.create({
   },
   headCell: {
     fontFamily: 'Helvetica-Bold',
-    fontSize: 5.7,
-    paddingVertical: 3,
+    fontSize: 5.5,
+    paddingVertical: 2,
     paddingHorizontal: 1.5,
     textAlign: 'center',
     color: COLORS.ink2,
@@ -117,8 +117,8 @@ export const pdfStyles = StyleSheet.create({
     borderColor: COLORS.line,
   },
   cell: {
-    fontSize: 5.8,
-    paddingVertical: 1.6,
+    fontSize: 5.5,
+    paddingVertical: 1.1,
     paddingHorizontal: 1.5,
     borderRightWidth: 0.25,
     borderBottomWidth: 0.25,

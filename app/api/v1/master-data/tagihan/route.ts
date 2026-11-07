@@ -183,7 +183,7 @@ export const POST = apiHandler(async (req: NextRequest) => {
   const { rows } = exportBodySchema.parse(await req.json())
 
   const wb = new ExcelJS.Workbook()
-  wb.creator = 'Sistem Pembayaran SPP SMAN 1 Denpasar'
+  wb.creator = 'Sistem Pembayaran Sumbangan Komite SMAN 1 Denpasar'
   const ws = wb.addWorksheet('Tagihan Belum Bayar', {
     views: [{ state: 'frozen', ySplit: 1 }],
   })

@@ -11,7 +11,7 @@ export async function GET(): Promise<Response> {
   await requireRole([ROLES.SUPER_ADMIN, ROLES.BENDAHARA, ROLES.TU])
 
   const wb = new ExcelJS.Workbook()
-  wb.creator = 'Sistem Pembayaran SPP SMAN 1 Denpasar'
+  wb.creator = 'Sistem Pembayaran Sumbangan Komite SMAN 1 Denpasar'
   wb.created = new Date()
 
   const ws = wb.addWorksheet('Pembayaran Manual')

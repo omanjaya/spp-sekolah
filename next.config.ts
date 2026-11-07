@@ -4,6 +4,9 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   reactStrictMode: true,
   poweredByHeader: false,
+  // App tidak memakai next/image. Matikan optimizer supaya endpoint /_next/image
+  // (riwayat CVE: RCE GHSA-2xp9-vwfh-vxw4, DoS) tidak memproses gambar.
+  images: { unoptimized: true },
   // React-PDF uses yoga-wasm + font loader that hang when Next tries to bundle them.
   // Treat as external so it resolves from node_modules at runtime.
   serverExternalPackages: ['@react-pdf/renderer'],

@@ -353,9 +353,11 @@ function ReceiptBlock({ data, school, copy }: ReceiptBlockProps) {
           <Text style={s.metaValue}>{data.siswa.nama} ({data.siswa.nis})</Text>
         </View>
         <View style={s.metaRow}>
-          <Text style={s.metaLabel}>Angkatan</Text>
+          <Text style={s.metaLabel}>Kelas / Angkatan</Text>
           <Text style={s.metaColon}>:</Text>
-          <Text style={s.metaValue}>{data.siswa.angkatan}</Text>
+          <Text style={s.metaValue}>
+            {data.siswa.kelas ?? '—'} / {data.siswa.angkatan}
+          </Text>
         </View>
       </View>
 
@@ -378,7 +380,7 @@ function ReceiptBlock({ data, school, copy }: ReceiptBlockProps) {
                 {MONTH_NAMES[item.periodMonth]} {item.periodYear}
               </Text>
               <Text style={s.tdKet}>
-                {item.keterangan ?? `SPP Komite ${MONTH_NAMES[item.periodMonth]} ${item.periodYear}`}
+                {item.keterangan ?? `Sumbangan Komite ${MONTH_NAMES[item.periodMonth]} ${item.periodYear}`}
               </Text>
               <Text style={s.tdAmount}>{fmtRupiah(item.amount)}</Text>
             </View>
@@ -468,7 +470,7 @@ export function KwitansiDocument({ data, school }: KwitansiDocumentProps) {
     <Document
       title={`Kwitansi ${data.nomorKwitansi}`}
       author={school.namaSekolah}
-      creator="Sistem Pembayaran SPP"
+      creator="Sistem Pembayaran Sumbangan Komite"
     >
       <Page size={[F4_W, F4_H]} style={s.page}>
         <ReceiptBlock data={data} school={school} copy="ASLI" />

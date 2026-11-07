@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server'
 
-import { apiHandler, requireAuth } from '@/lib/api-handler'
+import { apiHandler, requireAuth, requireRole } from '@/lib/api-handler'
+import { ROLES } from '@/core/constants'
 import { rombelCreateSchema, rombelFilterSchema } from '@/lib/validators/rombel.schema'
 import { rombelService } from '@/services/rombel.service'
 
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest): Promise<Response> {
 
 export async function POST(req: NextRequest): Promise<Response> {
   return apiHandler(async () => {
-    await requireAuth()
+    await requireRole([ROLES.SUPER_ADMIN, ROLES.BENDAHARA, ROLES.TU])
     const body = rombelCreateSchema.parse(await req.json())
     return rombelService.create(body)
   })(req)

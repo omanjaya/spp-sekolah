@@ -8,7 +8,12 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { ConflictError, NotFoundError, ValidationError } from '@/core/errors'
 import { PAGINATION } from '@/core/constants'
-import type { KwitansiCreateInput, KwitansiFilterInput } from '@/lib/validators/kwitansi.schema'
+import type {
+  KwitansiCreateInput,
+  KwitansiFilterInput,
+  KwitansiItemInput,
+  KwitansiUpdateInput,
+} from '@/lib/validators/kwitansi.schema'
 
 // ─── DTOs ──────────────────────────────────────────────────────────────────
 
@@ -19,6 +24,27 @@ export interface KwitansiItemDto {
   amount: number
   keterangan: string | null
   pembayaranId: string | null
+  kategori: 'REGULER' | 'KERINGANAN'
+  jenisKeringanan:
+    | 'JUARA'
+    | 'OSN'
+    | 'JUARA_UMUM'
+    | 'BEASISWA'
+    | 'KELUARGA_TIDAK_MAMPU'
+    | 'PINDAHAN'
+    | 'IJAZAH'
+    | 'LAINNYA'
+    | null
+}
+
+/** Status bulan untuk siswa — dipakai UI untuk disable bulan duplikat. */
+export interface SiswaMonthStatusDto {
+  year: number
+  month: number
+  hasPembayaran: boolean
+  hasKwitansiReguler: boolean
+  kwitansiIds: string[]
+  kwitansiNomors: string[]
 }
 
 export interface KwitansiDto {
@@ -30,6 +56,7 @@ export interface KwitansiDto {
     nis: string
     nama: string
     angkatan: number
+    kelas: string | null
   }
   tanggal: string
   totalAmount: number
@@ -60,7 +87,16 @@ type KwitansiWithRelations = {
   createdById: string
   createdAt: Date
   updatedAt: Date
-  siswa: { id: string; nis: string; nama: string; angkatan: number }
+  siswa: {
+    id: string
+    nis: string
+    nama: string
+    angkatan: number
+    enrollments?: Array<{
+      rombel: { kode: string } | null
+      tahunAjaran: { isActive: boolean } | null
+    }>
+  }
   createdBy: { id: string; nama: string }
   items: Array<{
     id: string
@@ -69,6 +105,17 @@ type KwitansiWithRelations = {
     amount: { toNumber?: () => number } | number
     keterangan: string | null
     pembayaranId: string | null
+    kategori: 'REGULER' | 'KERINGANAN'
+    jenisKeringanan:
+      | 'JUARA'
+      | 'OSN'
+      | 'JUARA_UMUM'
+      | 'BEASISWA'
+      | 'KELUARGA_TIDAK_MAMPU'
+      | 'PINDAHAN'
+      | 'IJAZAH'
+      | 'LAINNYA'
+      | null
     createdAt: Date
     kwitansiId: string
   }>
@@ -80,6 +127,9 @@ function asNumber(v: { toNumber?: () => number } | number): number {
 }
 
 function toDto(k: KwitansiWithRelations): KwitansiDto {
+  const enrollments = k.siswa.enrollments ?? []
+  const activeEnrollment =
+    enrollments.find((e) => e.tahunAjaran?.isActive) ?? enrollments[0]
   return {
     id: k.id,
     nomorKwitansi: k.nomorKwitansi,
@@ -89,6 +139,7 @@ function toDto(k: KwitansiWithRelations): KwitansiDto {
       nis: k.siswa.nis,
       nama: k.siswa.nama,
       angkatan: k.siswa.angkatan,
+      kelas: activeEnrollment?.rombel?.kode ?? null,
     },
     tanggal: k.tanggal.toISOString(),
     totalAmount: asNumber(k.totalAmount),
@@ -109,12 +160,24 @@ function toDto(k: KwitansiWithRelations): KwitansiDto {
       amount: asNumber(item.amount),
       keterangan: item.keterangan,
       pembayaranId: item.pembayaranId,
+      kategori: item.kategori,
+      jenisKeringanan: item.jenisKeringanan,
     })),
   }
 }
 
 const WITH_RELATIONS = {
-  siswa: true,
+  siswa: {
+    include: {
+      enrollments: {
+        include: {
+          rombel: { select: { kode: true } },
+          tahunAjaran: { select: { isActive: true } },
+        },
+        orderBy: { createdAt: 'desc' as const },
+      },
+    },
+  },
   createdBy: true,
   items: {
     orderBy: [{ periodYear: 'asc' as const }, { periodMonth: 'asc' as const }],
@@ -144,13 +207,69 @@ async function generateNomor(tanggal: Date, tx: Prisma.TransactionClient): Promi
   const startOfMonth = new Date(Date.UTC(year, month - 1, 1) - 8 * 60 * 60 * 1000)
   const endOfMonth   = new Date(Date.UTC(year, month,     1) - 8 * 60 * 60 * 1000 - 1)
 
-  const count = await tx.kwitansi.count({
+  // Pakai MAX(seq) + 1, bukan count + 1 — supaya gap (akibat delete) tidak
+  // menyebabkan tabrakan unique constraint.
+  const prefix = `KWT/${yyyy}/${mm}/`
+  const latest = await tx.kwitansi.findFirst({
     where: {
       tanggal: { gte: startOfMonth, lte: endOfMonth },
+      nomorKwitansi: { startsWith: prefix },
+    },
+    orderBy: { nomorKwitansi: 'desc' },
+    select: { nomorKwitansi: true },
+  })
+  const lastSeq = latest ? Number(latest.nomorKwitansi.slice(-4)) : 0
+  const seq = String(lastSeq + 1).padStart(4, '0')
+  return `${prefix}${seq}`
+}
+
+/**
+ * Validasi overlap: cek apakah ada KwitansiItem lain untuk (siswa, year, month)
+ * dengan kategori REGULER. Kategori KERINGANAN boleh duplikat (IJAZAH + Sumbangan Komite OK).
+ * `excludeKwitansiId` digunakan saat update — untuk exclude kwitansi yg sedang diedit.
+ */
+async function assertNoDuplicateRegulerItems(
+  tx: Prisma.TransactionClient,
+  siswaId: string,
+  items: ReadonlyArray<KwitansiItemInput>,
+  excludeKwitansiId?: string,
+): Promise<void> {
+  const reguler = items.filter((i) => (i.kategori ?? 'REGULER') === 'REGULER')
+  if (reguler.length === 0) return
+
+  const orClauses = reguler.map((i) => ({
+    periodYear: i.periodYear,
+    periodMonth: i.periodMonth,
+  }))
+
+  const existing = await tx.kwitansiItem.findMany({
+    where: {
+      kategori: 'REGULER',
+      kwitansi: {
+        siswaId,
+        ...(excludeKwitansiId ? { id: { not: excludeKwitansiId } } : {}),
+      },
+      OR: orClauses,
+    },
+    select: {
+      periodYear: true,
+      periodMonth: true,
+      kwitansi: { select: { nomorKwitansi: true } },
     },
   })
-  const seq = String(count + 1).padStart(4, '0')
-  return `KWT/${yyyy}/${mm}/${seq}`
+
+  if (existing.length > 0) {
+    const monthNames = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+      'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
+    ]
+    const labels = existing
+      .map((e) => `${monthNames[e.periodMonth - 1]} ${e.periodYear} (${e.kwitansi.nomorKwitansi})`)
+      .join(', ')
+    throw new ConflictError(
+      `Bulan berikut sudah ada pada kwitansi reguler siswa ini: ${labels}.`,
+    )
+  }
 }
 
 // ─── Service ───────────────────────────────────────────────────────────────
@@ -245,8 +364,9 @@ export const kwitansiService = {
         }
       }
 
-      // Pastikan tidak ada duplikat kwitansi per bulan untuk siswa yg sama di hari yg sama
-      // (boleh buat kwitansi berbeda hari untuk bulan yang sama)
+      // Cegah overlap bulan REGULER dengan kwitansi lain milik siswa yg sama.
+      // Kategori KERINGANAN (mis. IJAZAH) boleh duplikat di bulan yg sama.
+      await assertNoDuplicateRegulerItems(tx, input.siswaId, input.items)
 
       // Generate nomor dalam transaction agar sequence aman dari race condition
       const nomorKwitansi = await generateNomor(tanggal, tx)
@@ -263,11 +383,13 @@ export const kwitansiService = {
           createdById,
           items: {
             create: input.items.map((item) => ({
-              periodYear:   item.periodYear,
-              periodMonth:  item.periodMonth,
-              amount:       item.amount,
-              keterangan:   item.keterangan ?? null,
-              pembayaranId: item.pembayaranId ?? null,
+              periodYear:      item.periodYear,
+              periodMonth:     item.periodMonth,
+              amount:          item.amount,
+              keterangan:      item.keterangan ?? null,
+              pembayaranId:    item.pembayaranId ?? null,
+              kategori:        item.kategori ?? 'REGULER',
+              jenisKeringanan: item.kategori === 'KERINGANAN' ? (item.jenisKeringanan ?? null) : null,
             })),
           },
         },
@@ -276,6 +398,131 @@ export const kwitansiService = {
 
       return toDto(k)
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+  },
+
+  /**
+   * Update kwitansi. nomorKwitansi, siswaId, createdById tidak bisa diubah.
+   * Items di-recreate (delete all, insert all) dalam satu transaction.
+   */
+  async update(id: string, input: KwitansiUpdateInput): Promise<KwitansiDto> {
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.kwitansi.findUnique({
+        where: { id },
+        select: { id: true, siswaId: true, tanggal: true },
+      })
+      if (!existing) throw new NotFoundError(`Kwitansi ${id} tidak ditemukan.`)
+
+      const tanggal = input.tanggal ?? existing.tanggal
+      const totalAmount = input.items.reduce((s, i) => s + i.amount, 0)
+
+      // Cross-siswa guard untuk pembayaranId.
+      const pembayaranIds = input.items
+        .map((i) => i.pembayaranId)
+        .filter((pid): pid is string => pid != null)
+      if (pembayaranIds.length > 0) {
+        const validCount = await tx.pembayaran.count({
+          where: { id: { in: pembayaranIds }, siswaId: existing.siswaId },
+        })
+        if (validCount !== pembayaranIds.length) {
+          throw new ValidationError('Beberapa pembayaranId tidak valid atau bukan milik siswa ini.')
+        }
+      }
+
+      // Cek duplicate — exclude self supaya edit di kwitansi yg sama tidak gagal.
+      await assertNoDuplicateRegulerItems(tx, existing.siswaId, input.items, id)
+
+      // Ganti items: delete semua lalu insert baru.
+      await tx.kwitansiItem.deleteMany({ where: { kwitansiId: id } })
+
+      const k = await tx.kwitansi.update({
+        where: { id },
+        data: {
+          tanggal,
+          totalAmount,
+          biayaAdm: input.biayaAdm,
+          namaOrangTua: input.namaOrangTua ?? null,
+          catatan: input.catatan ?? null,
+          items: {
+            create: input.items.map((item) => ({
+              periodYear:      item.periodYear,
+              periodMonth:     item.periodMonth,
+              amount:          item.amount,
+              keterangan:      item.keterangan ?? null,
+              pembayaranId:    item.pembayaranId ?? null,
+              kategori:        item.kategori ?? 'REGULER',
+              jenisKeringanan: item.kategori === 'KERINGANAN' ? (item.jenisKeringanan ?? null) : null,
+            })),
+          },
+        },
+        include: WITH_RELATIONS,
+      })
+
+      return toDto(k)
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+  },
+
+  /**
+   * Status bulan untuk siswa — return semua (year, month) unik yg sudah terdata
+   * baik via Pembayaran maupun via KwitansiItem (REGULER).
+   * UI pakai ini untuk disable bulan yg sudah kwitansi-ed + mark yg sudah bayar.
+   */
+  async getMonthsBySiswa(siswaId: string): Promise<SiswaMonthStatusDto[]> {
+    const siswa = await prisma.siswa.findUnique({ where: { id: siswaId }, select: { id: true } })
+    if (!siswa) throw new NotFoundError(`Siswa ${siswaId} tidak ditemukan.`)
+
+    const [pembayaran, kwitansiItems] = await Promise.all([
+      prisma.pembayaran.findMany({
+        where: { siswaId, statusBayar: 'TERBAYAR' },
+        select: { periodYear: true, periodMonth: true },
+      }),
+      prisma.kwitansiItem.findMany({
+        where: { kategori: 'REGULER', kwitansi: { siswaId } },
+        select: {
+          periodYear: true,
+          periodMonth: true,
+          kwitansi: { select: { id: true, nomorKwitansi: true } },
+        },
+      }),
+    ])
+
+    const map = new Map<string, SiswaMonthStatusDto>()
+    const keyOf = (y: number, m: number) => `${y}-${m}`
+
+    for (const p of pembayaran) {
+      const k = keyOf(p.periodYear, p.periodMonth)
+      const row = map.get(k) ?? {
+        year: p.periodYear,
+        month: p.periodMonth,
+        hasPembayaran: false,
+        hasKwitansiReguler: false,
+        kwitansiIds: [],
+        kwitansiNomors: [],
+      }
+      row.hasPembayaran = true
+      map.set(k, row)
+    }
+
+    for (const ki of kwitansiItems) {
+      const k = keyOf(ki.periodYear, ki.periodMonth)
+      const row = map.get(k) ?? {
+        year: ki.periodYear,
+        month: ki.periodMonth,
+        hasPembayaran: false,
+        hasKwitansiReguler: false,
+        kwitansiIds: [],
+        kwitansiNomors: [],
+      }
+      row.hasKwitansiReguler = true
+      if (!row.kwitansiIds.includes(ki.kwitansi.id)) {
+        row.kwitansiIds.push(ki.kwitansi.id)
+        row.kwitansiNomors.push(ki.kwitansi.nomorKwitansi)
+      }
+      map.set(k, row)
+    }
+
+    return Array.from(map.values()).sort((a, b) =>
+      a.year !== b.year ? a.year - b.year : a.month - b.month,
+    )
   },
 
   async delete(id: string): Promise<void> {

@@ -6,6 +6,8 @@ import {
   FileSpreadsheet,
   Loader2,
   Upload,
+  Plus,
+  Wand2,
 } from 'lucide-react'
 
 import { PageHeader } from '@/components/layouts/page-header'
@@ -13,12 +15,19 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog'
 import {
   useTagihanBpdReview,
   useImportTagihanBpd,
   useExportTagihanBpd,
   useDownloadManualTemplate,
   useImportManual,
+  useAddManualTagihan,
+  useBulkGenerateTagihan,
   type ReviewRow,
 } from '@/hooks/use-tagihan-bpd'
 
@@ -255,7 +264,11 @@ function PembayaranManualTab() {
 function ReviewExportTab() {
   const { data, isLoading, error } = useTagihanBpdReview()
   const exportMutation = useExportTagihanBpd()
+  const addManual = useAddManualTagihan()
+  const bulkGen = useBulkGenerateTagihan()
   const [filter, setFilter] = useState<FilterStatus>('semua')
+  const [manualOpen, setManualOpen] = useState(false)
+  const [bulkOpen, setBulkOpen] = useState(false)
 
   const counts = data?.counts ?? { tetap: 0, dihapus_rekonsiliasi: 0, dihapus_manual: 0 }
   const total = counts.tetap + counts.dihapus_rekonsiliasi + counts.dihapus_manual
@@ -339,7 +352,25 @@ function ReviewExportTab() {
               </button>
             ))}
 
-            <div className="ml-auto">
+            <div className="ml-auto flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setManualOpen(true)}
+                className="gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                Tambah Tagihan
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setBulkOpen(true)}
+                className="gap-2"
+              >
+                <Wand2 className="h-4 w-4" />
+                Bulk Generate
+              </Button>
               <Button
                 onClick={() => exportMutation.mutate(tetapRows)}
                 disabled={exportMutation.isPending || tetapRows.length === 0}
@@ -354,6 +385,19 @@ function ReviewExportTab() {
               </Button>
             </div>
           </div>
+
+          <ManualTagihanDialog
+            open={manualOpen}
+            onOpenChange={setManualOpen}
+            onSubmit={(input) => addManual.mutateAsync(input).then(() => setManualOpen(false))}
+            isPending={addManual.isPending}
+          />
+          <BulkGenerateDialog
+            open={bulkOpen}
+            onOpenChange={setBulkOpen}
+            onSubmit={(input) => bulkGen.mutateAsync(input).then(() => setBulkOpen(false))}
+            isPending={bulkGen.isPending}
+          />
 
           {/* Table */}
           {filteredRows.length === 0 ? (
@@ -372,6 +416,7 @@ function ReviewExportTab() {
                     <th className="border-b border-r border-slate-200 px-2 py-2 text-center font-semibold text-slate-700">Tahun</th>
                     <th className="border-b border-r border-slate-200 px-2 py-2 text-center font-semibold text-slate-700">Bulan</th>
                     <th className="border-b border-r border-slate-200 px-2 py-2 text-right font-semibold text-slate-700">Nominal</th>
+                    <th className="border-b border-r border-slate-200 px-2 py-2 text-center font-semibold text-slate-700">Sumber</th>
                     <th className="border-b border-r border-slate-200 px-2 py-2 text-left font-semibold text-slate-700">Status</th>
                     <th className="border-b border-slate-200 px-2 py-2 text-left font-semibold text-slate-700">Alasan</th>
                   </tr>
@@ -402,6 +447,23 @@ function ReviewExportTab() {
                       </td>
                       <td className="border-b border-r border-slate-200 px-2 py-1.5 text-right tabular-nums text-slate-700">
                         {formatNominal(row.nominal)}
+                      </td>
+                      <td className="border-b border-r border-slate-200 px-2 py-1.5 text-center">
+                        {row.sumber === 'BPD' && (
+                          <Badge variant="outline" className="border-blue-300 bg-blue-50 text-blue-700 text-[10px]">
+                            BPD
+                          </Badge>
+                        )}
+                        {row.sumber === 'MANUAL' && (
+                          <Badge variant="outline" className="border-purple-300 bg-purple-50 text-purple-700 text-[10px]">
+                            Manual
+                          </Badge>
+                        )}
+                        {row.sumber === 'AUTO_GENERATE' && (
+                          <Badge variant="outline" className="border-slate-300 bg-slate-50 text-slate-700 text-[10px]">
+                            Auto
+                          </Badge>
+                        )}
                       </td>
                       <td className="border-b border-r border-slate-200 px-2 py-1.5">
                         {row.status === 'tetap' && (
@@ -475,5 +537,133 @@ export default function TagihanBpdPage() {
         </TabsContent>
       </Tabs>
     </div>
+  )
+}
+
+// ─── Manual Tagihan Dialog ────────────────────────────────────────────────────
+
+const NOW = new Date()
+const CURRENT_YEAR = NOW.getFullYear()
+const CURRENT_MONTH = NOW.getMonth() + 1
+
+interface ManualTagihanDialogProps {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  onSubmit: (input: { nis: string; tahun: number; bulan: number; nominal: number; keterangan?: string }) => Promise<unknown>
+  isPending: boolean
+}
+
+function ManualTagihanDialog({ open, onOpenChange, onSubmit, isPending }: ManualTagihanDialogProps) {
+  const [nis, setNis] = useState('')
+  const [tahun, setTahun] = useState(String(CURRENT_YEAR))
+  const [bulan, setBulan] = useState(String(CURRENT_MONTH))
+  const [nominal, setNominal] = useState('350000')
+
+  function handle() {
+    void onSubmit({
+      nis: nis.trim(),
+      tahun: Number(tahun),
+      bulan: Number(bulan),
+      nominal: Number(nominal),
+    }).then(() => {
+      setNis(''); setNominal('350000')
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Tambah Tagihan Manual</DialogTitle>
+          <DialogDescription className="text-xs">
+            Tambah 1 baris tagihan ke master BPD untuk NIS tertentu. Kelas/jurusan diisi otomatis dari enrollment aktif.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="nis-m">NIS</Label>
+            <Input id="nis-m" value={nis} onChange={(e) => setNis(e.target.value)} placeholder="Mis. 25093" inputMode="numeric" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="tahun-m">Tahun</Label>
+              <Input id="tahun-m" value={tahun} onChange={(e) => setTahun(e.target.value)} inputMode="numeric" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="bulan-m">Bulan (1-12)</Label>
+              <Input id="bulan-m" value={bulan} onChange={(e) => setBulan(e.target.value)} inputMode="numeric" />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="nominal-m">Nominal (Rp)</Label>
+            <Input id="nominal-m" value={nominal} onChange={(e) => setNominal(e.target.value)} inputMode="numeric" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isPending}>Batal</Button>
+          <Button onClick={handle} disabled={isPending || !nis.trim()}>
+            {isPending ? 'Menyimpan…' : 'Tambah'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Bulk Generate Dialog ─────────────────────────────────────────────────────
+
+interface BulkGenerateDialogProps {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  onSubmit: (input: { tahun: number; bulan: number; angkatan?: number }) => Promise<unknown>
+  isPending: boolean
+}
+
+function BulkGenerateDialog({ open, onOpenChange, onSubmit, isPending }: BulkGenerateDialogProps) {
+  const [tahun, setTahun] = useState(String(CURRENT_YEAR))
+  const [bulan, setBulan] = useState(String(CURRENT_MONTH))
+  const [angkatan, setAngkatan] = useState('')
+
+  function handle() {
+    void onSubmit({
+      tahun: Number(tahun),
+      bulan: Number(bulan),
+      angkatan: angkatan.trim() ? Number(angkatan) : undefined,
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Bulk Generate Tagihan dari Tunggakan</DialogTitle>
+          <DialogDescription className="text-xs">
+            Buat tagihan master untuk semua siswa AKTIF yang punya tunggakan pada periode terpilih dan belum ada di master BPD. Skip siswa yang sudah bayar / dapat keringanan 100% / pelunasan.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="tahun-b">Tahun</Label>
+              <Input id="tahun-b" value={tahun} onChange={(e) => setTahun(e.target.value)} inputMode="numeric" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="bulan-b">Bulan (1-12)</Label>
+              <Input id="bulan-b" value={bulan} onChange={(e) => setBulan(e.target.value)} inputMode="numeric" />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="angkatan-b">Angkatan (opsional, kosongkan = semua)</Label>
+            <Input id="angkatan-b" value={angkatan} onChange={(e) => setAngkatan(e.target.value)} placeholder="Mis. 2025" inputMode="numeric" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isPending}>Batal</Button>
+          <Button onClick={handle} disabled={isPending}>
+            {isPending ? 'Generating…' : 'Generate'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

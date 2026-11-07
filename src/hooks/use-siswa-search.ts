@@ -11,6 +11,16 @@ export interface SiswaSearchItem {
   nama: string;
   angkatan: number;
   statusSiswa?: string;
+  enrollmentAktif?: {
+    rombel?: {
+      kode: string;
+    } | null;
+  } | null;
+}
+
+/** Convenience helper: ambil kode kelas aktif siswa (mis. "XII.4") kalau ada. */
+export function siswaKelas(s: Pick<SiswaSearchItem, 'enrollmentAktif'> | null | undefined): string | null {
+  return s?.enrollmentAktif?.rombel?.kode ?? null;
 }
 
 /**

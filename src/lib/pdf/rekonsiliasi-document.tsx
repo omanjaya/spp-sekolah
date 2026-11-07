@@ -173,7 +173,7 @@ export function RekonsiliasiPdfDocument({
         <View style={styles.header}>
           <Text style={styles.schoolName}>{schoolName.toUpperCase()}</Text>
           {schoolAddress ? <Text style={styles.subTitle}>{schoolAddress}</Text> : null}
-          <Text style={styles.title}>DAFTAR REKONSILIASI PEMBAYARAN SPP / KOMITE</Text>
+          <Text style={styles.title}>DAFTAR REKONSILIASI PEMBAYARAN Sumbangan Komite / KOMITE</Text>
         </View>
 
         {filters.length > 0 ? (

@@ -1,3 +1,6 @@
+# ⚠ HANYA untuk development lokal. JANGAN dijalankan di server produksi:
+#   secret di bawah ini sudah publik di GitHub, DB memakai spp/spp.
+#
 # Development compose — hot reload via bind-mount + named volume for node_modules.
 # Ports are intentionally non-mainstream to avoid collision with local services.
 #
@@ -18,12 +21,14 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "3737:3000"           # host:container
+      - "127.0.0.1:3737:3000" # host:container — localhost saja (Docker bypass UFW)
     environment:
       DATABASE_URL: "postgresql://spp:spp@db:5432/spp?schema=public&connection_limit=20&pool_timeout=10"
       PRISMA_SLOW_QUERY_MS: "500"
       NEXTAUTH_URL: "http://localhost:3737"
       NEXTAUTH_SECRET: "dev-secret-please-change-in-production-abcdef123456"
+      SEED_SUPERADMIN_PASSWORD: "ChangeMe-SuperAdmin-2026!"
+      SEED_BENDAHARA_PASSWORD: "ChangeMe-Bendahara-2026!"
       NODE_ENV: development
       LOG_LEVEL: debug
       NODE_OPTIONS: "--max-old-space-size=2048"
@@ -58,7 +63,7 @@ services:
     container_name: spp-dev-db
     restart: unless-stopped
     ports:
-      - "55432:5432"          # expose to host for GUI tools like DBeaver/psql
+      - "127.0.0.1:55432:5432" # localhost saja; akses dari laptop via SSH tunnel
     environment:
       POSTGRES_USER: spp
       POSTGRES_PASSWORD: spp

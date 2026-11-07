@@ -23,7 +23,13 @@ export default function LoginPage() {
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get('callbackUrl') ?? '/';
+  // Hanya izinkan path internal — cegah open redirect ke situs phishing
+  // (mis. ?callbackUrl=https://evil.tld atau //evil.tld).
+  const rawCallback = searchParams.get('callbackUrl') ?? '/';
+  const callbackUrl =
+    rawCallback.startsWith('/') && !rawCallback.startsWith('//') && !rawCallback.startsWith('/\\')
+      ? rawCallback
+      : '/';
   const [serverError, setServerError] = useState<string | null>(null);
 
   const {
@@ -58,7 +64,7 @@ function LoginForm() {
             <GraduationCap className="h-6 w-6" aria-hidden="true" />
           </div>
           <CardTitle className="text-2xl font-semibold tracking-tight">SMAN 1 Denpasar</CardTitle>
-          <CardDescription>Masuk ke Sistem Pembayaran SPP</CardDescription>
+          <CardDescription>Masuk ke Sistem Pembayaran Sumbangan Komite</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>

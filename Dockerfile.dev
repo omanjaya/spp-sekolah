@@ -1,7 +1,7 @@
 # Dev-only image: runs `next dev` inside the container, with the project
 # source bind-mounted for hot reload. node_modules is a named volume so it
 # doesn't get overwritten by the host mount (and stays Linux-native).
-FROM node:20-alpine
+FROM node:22-alpine
 
 # wget for healthcheck, openssl for seed/cli utilities.
 RUN apk add --no-cache wget openssl libc6-compat

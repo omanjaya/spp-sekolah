@@ -52,10 +52,10 @@ export function TunggakanTable({
         header: 'Nama',
         cell: ({ row }) => (
           <div className="min-w-0 space-y-0.5">
-            <p className="truncate text-sm font-medium text-slate-900">{row.original.nama}</p>
-            <p className="truncate text-xs text-slate-500">
+            <p className="text-sm font-medium text-slate-900">{row.original.nama}</p>
+            <p className="text-xs text-slate-500">
               Angkatan {row.original.angkatan}
-              {row.original.rombelKode ? ` · ${row.original.rombelKode}` : ''}
+              {row.original.rombelKode ? ` · Kelas ${row.original.rombelKode}` : ''}
             </p>
           </div>
         ),

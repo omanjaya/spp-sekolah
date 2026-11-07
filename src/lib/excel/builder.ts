@@ -65,8 +65,8 @@ export async function buildRekapExcel(
   school: SchoolInfo,
 ): Promise<ExcelJS.Workbook> {
   const wb = new ExcelJS.Workbook()
-  wb.creator = 'Sistem Pembayaran SPP'
-  wb.lastModifiedBy = 'Sistem Pembayaran SPP'
+  wb.creator = 'Sistem Pembayaran Sumbangan Komite'
+  wb.lastModifiedBy = 'Sistem Pembayaran Sumbangan Komite'
   wb.created = new Date()
   wb.modified = new Date()
 

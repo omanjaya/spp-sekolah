@@ -160,7 +160,7 @@ function UploadBuktiDialog({ pembayaran, open, onClose, onSuccess }: UploadBukti
                     asChild
                     variant="ghost"
                     size="sm"
-                    className="h-7 gap-1 px-2 text-xs text-green-700 hover:bg-green-100"
+                    className="h-9 gap-1 px-2.5 text-xs text-green-700 hover:bg-green-100"
                   >
                     <a
                       href={`/api/v1/pembayaran/${pembayaran.id}/bukti`}
@@ -174,7 +174,7 @@ function UploadBuktiDialog({ pembayaran, open, onClose, onSuccess }: UploadBukti
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-7 gap-1 px-2 text-xs text-red-600 hover:bg-red-50"
+                    className="h-9 gap-1 px-2.5 text-xs text-red-600 hover:bg-red-50"
                     onClick={handleDelete}
                     disabled={isLoading}
                   >
@@ -284,7 +284,7 @@ function PembayaranTable({
                 {rupiahFormatter.format(p.amount)}
               </td>
               <td className="py-2.5 pr-4 text-xs text-slate-600">
-                {new Date(p.tanggalTransaksi).toLocaleDateString('id-ID')}
+                {new Date(p.tanggalTransaksi).toLocaleDateString('id-ID', { timeZone: 'UTC' })}
               </td>
               <td className="py-2.5 pr-4 font-mono text-xs text-slate-500">
                 {p.noBukti ?? '—'}

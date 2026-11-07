@@ -94,7 +94,7 @@ function LaporanTunggakanContent() {
     <div className="space-y-4">
       <PageHeader
         title="Laporan Tunggakan"
-        description="Daftar siswa dengan tunggakan SPP berdasarkan filter angkatan dan rombel."
+        description="Daftar siswa dengan tunggakan Sumbangan Komite berdasarkan filter angkatan dan rombel."
       />
       <Card className="border-slate-200">
         <CardHeader>

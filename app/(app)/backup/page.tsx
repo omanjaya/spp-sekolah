@@ -78,7 +78,7 @@ const TABLE_LABELS: Record<string, { label: string; icon: string }> = {
   rombel:                { label: 'Rombel / Kelas',        icon: '🏫' },
   siswa:                 { label: 'Data Siswa',            icon: '👩‍🎓' },
   enrollment:            { label: 'Enrollment',            icon: '📋' },
-  pembayaran:            { label: 'Pembayaran SPP',        icon: '💰' },
+  pembayaran:            { label: 'Pembayaran Sumbangan Komite',        icon: '💰' },
   keringanan:            { label: 'Keringanan',            icon: '🎖️' },
   pelunasan:             { label: 'Pelunasan',             icon: '✅' },
   kwitansi:              { label: 'Kwitansi',              icon: '🧾' },

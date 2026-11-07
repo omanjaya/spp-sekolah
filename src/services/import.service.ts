@@ -208,7 +208,7 @@ async function analyzeParseResult(
     periodeChecks.push({ siswaId, year: r.periodYear, month: r.periodMonth })
   }
 
-  let conflictMap = new Map<string, { id: string; noBukti: string | null }>()
+  const conflictMap = new Map<string, { id: string; noBukti: string | null }>()
   if (periodeChecks.length > 0) {
     // Fetch by siswaId IN (...) only, then filter in-memory.
     // Avoids a large OR clause that the Postgres planner handles poorly
@@ -422,7 +422,7 @@ export const importService = {
       // Cache paid-periode set per-siswa so we don't refetch on every roll-forward row.
       const paidKeysCache = new Map<string, Set<string>>()
 
-      /** Compute SPP window Jul(a) → Jun(a+3), 36 months. */
+      /** Compute Sumbangan Komite window Jul(a) → Jun(a+3), 36 months. */
       const sppWindow = (angkatan: number): Array<{ y: number; m: number }> => {
         const out: Array<{ y: number; m: number }> = []
         for (let g = 0; g < 3; g += 1) {
@@ -577,7 +577,7 @@ export const importService = {
             if (!next) {
               errors.push({
                 rowIndex: row.rowIndex,
-                message: `Siswa sudah lunas seluruh SPP (36 bulan). Tidak ada slot kosong untuk roll-forward. Mohon tindak lanjut sebagai kelebihan bayar / refund manual.`,
+                message: `Siswa sudah lunas seluruh Sumbangan Komite (36 bulan). Tidak ada slot kosong untuk roll-forward. Mohon tindak lanjut sebagai kelebihan bayar / refund manual.`,
               })
             } else {
               const reserved =

@@ -4,7 +4,7 @@ import { Suspense, useState, useCallback } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Filter, Download, GraduationCap, Archive, Loader2 } from 'lucide-react';
+import { Filter, Printer, Layers, Archive, Loader2, History } from 'lucide-react';
 
 import { PageHeader } from '@/components/layouts/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -173,9 +173,21 @@ function LaporanPerRombelContent() {
 
   const [zipLoading, setZipLoading] = useState(false);
 
-  function handleExcelExport() {
+  function handlePrintRombel() {
     if (!rombelId || !effectiveTahunAjaranId) return;
-    const url = `/api/v1/reports/per-rombel/export?rombelId=${rombelId}&tahunAjaranId=${effectiveTahunAjaranId}`;
+    const url = `/api/v1/reports/per-rombel/pdf?rombelId=${rombelId}&tahunAjaranId=${effectiveTahunAjaranId}`;
+    window.open(url, '_blank');
+  }
+
+  function handlePrintGrade() {
+    if (!grade || !effectiveTahunAjaranId) return;
+    const url = `/api/v1/reports/per-rombel/pdf?grade=${grade}&tahunAjaranId=${effectiveTahunAjaranId}`;
+    window.open(url, '_blank');
+  }
+
+  function handlePrintHistory() {
+    if (!rombelId || !effectiveTahunAjaranId) return;
+    const url = `/api/v1/reports/per-rombel/pdf?rombelId=${rombelId}&tahunAjaranId=${effectiveTahunAjaranId}&mode=history`;
     window.open(url, '_blank');
   }
 
@@ -213,7 +225,7 @@ function LaporanPerRombelContent() {
     <div className="space-y-4">
       <PageHeader
         title="Laporan Per Rombel"
-        description="Ringkasan pembayaran SPP per siswa dalam satu rombel."
+        description="Ringkasan pembayaran Sumbangan Komite per siswa dalam satu rombel."
       />
 
       <Card className="border-slate-200">
@@ -323,15 +335,36 @@ function LaporanPerRombelContent() {
               </CardDescription>
             )}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
               size="sm"
-              onClick={handleExcelExport}
+              onClick={handlePrintRombel}
               disabled={!rombelId || !effectiveTahunAjaranId}
+              title="Cetak laporan TA aktif untuk rombel ini (1 lembar F4)"
             >
-              <Download className="h-4 w-4" aria-hidden="true" />
-              Export Excel
+              <Printer className="h-4 w-4" aria-hidden="true" />
+              Cetak Rombel
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePrintHistory}
+              disabled={!rombelId || !effectiveTahunAjaranId}
+              title="Cetak riwayat lintas TA (X=1, XI=2, XII=3 lembar)"
+            >
+              <History className="h-4 w-4" aria-hidden="true" />
+              Cetak Riwayat
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePrintGrade}
+              disabled={!grade || !effectiveTahunAjaranId}
+              title="Cetak semua rombel di tingkat yang sama (1 lembar per rombel)"
+            >
+              <Layers className="h-4 w-4" aria-hidden="true" />
+              Cetak Semua Kelas {grade || ''}
             </Button>
             <Button
               variant="outline"

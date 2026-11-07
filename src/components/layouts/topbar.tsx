@@ -36,7 +36,7 @@ export function Topbar() {
 
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b border-slate-200 bg-white px-4 lg:px-6">
-      <div className="flex flex-1 items-center gap-3 pl-10 lg:pl-0">
+      <div className="flex flex-1 items-center gap-3 pl-14 lg:pl-0">
         <button
           onClick={() => setOpen(true)}
           className="relative flex w-full max-w-sm items-center rounded-md border border-input bg-transparent px-3 py-1.5 text-sm text-slate-400 shadow-sm hover:bg-slate-50"

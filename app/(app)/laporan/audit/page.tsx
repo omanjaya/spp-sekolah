@@ -52,7 +52,7 @@ export default function LaporanAuditPage() {
     <div className="space-y-4">
       <PageHeader
         title="Laporan Audit"
-        description="Riwayat aktivitas pengguna dalam sistem pembayaran SPP."
+        description="Riwayat aktivitas pengguna dalam sistem pembayaran Sumbangan Komite."
       />
       <Card className="border-slate-200">
         <CardHeader>

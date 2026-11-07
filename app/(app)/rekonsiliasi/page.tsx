@@ -99,11 +99,14 @@ function fmtRupiah(n: number | null | undefined): string {
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—';
   const d = new Date(iso);
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const yy = d.getFullYear();
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mi = String(d.getMinutes()).padStart(2, '0');
+  // Tanggal transaksi dari BPD selalu WIB (wall-clock). Disimpan tanpa TZ info
+  // di DB, Prisma serialize sebagai UTC. Pakai UTC getter supaya wall-clock asli
+  // BPD tetap tampil tanpa shift TZ browser.
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const yy = d.getUTCFullYear();
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mi = String(d.getUTCMinutes()).padStart(2, '0');
   return `${dd}/${mm}/${yy} ${hh}:${mi}`;
 }
 
@@ -293,8 +296,10 @@ function RekonsiliasiContent() {
     const wantDup = searchParams.get('duplikat') === 'true';
     setFilters((f) => (f.duplikat === wantDup ? f : { ...f, duplikat: wantDup }));
   }, [searchParams]);
+  // Default: ASC by tanggalTransaksi — sesuai urutan file BPD supaya mudah
+  // ditelusuri baris per baris saat verifikasi import.
   const [sorting, setSorting] = useState<SortingState>([
-    { id: 'tanggalTransaksi', desc: true },
+    { id: 'tanggalTransaksi', desc: false },
   ]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(DEFAULT_HIDDEN);
 

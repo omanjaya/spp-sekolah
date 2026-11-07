@@ -10,6 +10,11 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+// Batas per file: tiap bulan = 1 upsert berurutan, jadi rentang/jumlah baris
+// yang tak dibatasi (mis. 2000-01 s/d 2100-12) bisa membebani DB.
+const MAX_ROWS = 5000
+const MAX_PERIOD_MONTHS = 36 // masa sekolah SMA
+const MAX_KETERANGAN_LENGTH = 500
 
 function cellToString(value: ExcelJS.CellValue | null | undefined): string {
   if (value === null || value === undefined) return ''
@@ -87,6 +92,23 @@ async function parseManualExcel(buffer: Uint8Array): Promise<{ rows: ManualRow[]
     if (!keterangan) {
       errors.push(`Baris ${r} (NIS ${nis}): Keterangan wajib diisi.`)
       continue
+    }
+    if (keterangan.length > MAX_KETERANGAN_LENGTH) {
+      errors.push(`Baris ${r} (NIS ${nis}): Keterangan maksimal ${MAX_KETERANGAN_LENGTH} karakter.`)
+      continue
+    }
+    const months = (tahunSampai - tahunDari) * 12 + (bulanSampai - bulanDari) + 1
+    if (months < 1) {
+      errors.push(`Baris ${r} (NIS ${nis}): Periode Sampai lebih awal dari Periode Dari.`)
+      continue
+    }
+    if (months > MAX_PERIOD_MONTHS) {
+      errors.push(`Baris ${r} (NIS ${nis}): Rentang periode maksimal ${MAX_PERIOD_MONTHS} bulan.`)
+      continue
+    }
+    if (rows.length >= MAX_ROWS) {
+      errors.push(`File melebihi ${MAX_ROWS} baris data; baris ${r} dan seterusnya dilewati.`)
+      break
     }
 
     rows.push({ nis, tahunDari, bulanDari, tahunSampai, bulanSampai, keterangan })

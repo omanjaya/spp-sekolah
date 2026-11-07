@@ -20,6 +20,7 @@ import {
   type MatrixRombelGroup,
 } from '@/services/matrix-data.service'
 import { MatrixDocument, type SchoolInfo } from '@/lib/pdf/matrix-document'
+import { deriveGradesForCohort } from '@/services/pdf.service'
 import { buildRekapExcel } from '@/lib/excel/builder'
 import { prisma } from '@/lib/db'
 
@@ -119,7 +120,7 @@ export const POST = apiHandler(async (req: NextRequest) => {
     }
 
     const buf = await renderToBuffer(
-      <MatrixDocument data={mergedData} school={school} />,
+      <MatrixDocument data={mergedData} school={school} grades={deriveGradesForCohort(mergedData.angkatan)} />,
     )
 
     const fileName = buildFileName('pdf', rombels, angkatan)
@@ -136,7 +137,7 @@ export const POST = apiHandler(async (req: NextRequest) => {
   // ─── Excel only: 1 file, multi-sheet ──────────────────────
   if (format === 'excel') {
     const wb = new ExcelJS.Workbook()
-    wb.creator = 'Sistem Pembayaran SPP'
+    wb.creator = 'Sistem Pembayaran Sumbangan Komite'
     wb.created = new Date()
     let angkatan = filter.angkatan
 
@@ -221,14 +222,14 @@ export const POST = apiHandler(async (req: NextRequest) => {
       generatedAt: new Date(),
     }
     const pdfBuf = await renderToBuffer(
-      <MatrixDocument data={mergedData} school={school} />,
+      <MatrixDocument data={mergedData} school={school} grades={deriveGradesForCohort(mergedData.angkatan)} />,
     )
     zip.file(buildFileName('pdf', rombels, angkatan), new Uint8Array(pdfBuf))
   }
 
   // Excel — reuse cached perRombelData
   const wb = new ExcelJS.Workbook()
-  wb.creator = 'Sistem Pembayaran SPP'
+  wb.creator = 'Sistem Pembayaran Sumbangan Komite'
   for (const { rombel: r, data } of perRombelData) {
     const label = formatRombelLabel(r.grade, r.nomor)
     const rWb = await buildRekapExcel(data, school)

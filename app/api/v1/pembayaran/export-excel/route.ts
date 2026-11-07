@@ -60,7 +60,7 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   // Build workbook
   const wb = new ExcelJS.Workbook()
-  wb.creator = 'SMAN 1 Denpasar - Sistem Pembayaran SPP'
+  wb.creator = 'SMAN 1 Denpasar - Sistem Pembayaran Sumbangan Komite'
   wb.created = new Date()
 
   const ws = wb.addWorksheet('Data Pembayaran')

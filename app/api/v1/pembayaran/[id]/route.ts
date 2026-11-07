@@ -24,7 +24,7 @@ export const PATCH = apiHandler<unknown, { id: string }>(async (req: NextRequest
 })
 
 export const DELETE = apiHandler<unknown, { id: string }>(async (req: NextRequest, ctx) => {
-  const actor = await requireRole([ROLES.SUPER_ADMIN, ROLES.BENDAHARA])
+  const actor = await requireRole([ROLES.SUPER_ADMIN])
   const { id } = await ctx.params
   const body = pembayaranCancelSchema.parse(await req.json())
   return pembayaranService.cancel(id, body.catatan, actor)

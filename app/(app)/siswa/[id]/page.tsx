@@ -49,13 +49,14 @@ function formatPeriod(year: number, month: number): string {
 }
 
 function formatDate(iso: string): string {
+  // Stored sebagai wall-clock WIB tanpa TZ — pakai UTC getter biar tampilkan asli.
   const d = new Date(iso);
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
 }
 
 function formatDateShort(iso: string | Date): string {
   const d = typeof iso === 'string' ? new Date(iso) : iso;
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getFullYear()).slice(2)}`;
+  return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCFullYear()).slice(2)}`;
 }
 
 function formatRupiah(n: number): string {
@@ -350,7 +351,7 @@ function SingleStudentMatrix({ data }: { data: MatrixData }) {
         <span className="flex items-center gap-1"><span className="inline-block h-3 w-5 rounded-sm bg-amber-50 ring-1 ring-amber-200" /> Juara</span>
         <span className="flex items-center gap-1"><span className="inline-block h-3 w-5 rounded-sm bg-blue-50 ring-1 ring-blue-200" /> OSN</span>
         <span className="flex items-center gap-1"><span className="inline-block h-3 w-5 rounded-sm bg-orange-50 ring-1 ring-orange-200" /> Kurang Mampu</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-3 w-5 rounded-sm bg-slate-100 ring-1 ring-slate-200" /> Bebas SPP</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-3 w-5 rounded-sm bg-slate-100 ring-1 ring-slate-200" /> Bebas Sumbangan Komite</span>
         <span className="flex items-center gap-1 text-slate-300">– Belum</span>
       </div>
     </div>
@@ -428,7 +429,7 @@ const KERINGANAN_MAP: Record<string, { label: string; cls: string }> = {
   OSN: { label: 'OSN', cls: 'bg-blue-50 text-blue-700 ring-blue-200' },
   BEASISWA: { label: 'Beasiswa', cls: 'bg-purple-50 text-purple-700 ring-purple-200' },
   KELUARGA_TIDAK_MAMPU: { label: 'Kurang Mampu', cls: 'bg-orange-50 text-orange-700 ring-orange-200' },
-  LAINNYA: { label: 'Bebas SPP', cls: 'bg-slate-50 text-slate-700 ring-slate-200' },
+  LAINNYA: { label: 'Bebas Sumbangan Komite', cls: 'bg-slate-50 text-slate-700 ring-slate-200' },
 };
 
 function KeringananTab({ siswaId }: { siswaId: string }) {

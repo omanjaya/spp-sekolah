@@ -45,7 +45,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     )
   }
 
-  // Nominal SPP dari TA (bisa berbeda per tahun, misal Rp 175k saat COVID)
+  // Nominal Sumbangan Komite dari TA (bisa berbeda per tahun, misal Rp 175k saat COVID)
   const NOMINAL = ta.nominalSppDefault ? Number(ta.nominalSppDefault) : NOMINAL_FALLBACK
 
   // Get all enrolled siswa for this TA (or filter by angkatan)
@@ -61,7 +61,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     },
   })
 
-  // For each siswa, determine their full SPP window (36 months)
+  // For each siswa, determine their full Sumbangan Komite window (36 months)
   // Then find which periods are NOT yet paid
   const siswaIds = enrollments.map((e) => e.siswa.id)
 
@@ -110,7 +110,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     paidSet.set(pl.siswaId, s)
   }
 
-  // Generate SPP window per siswa (36 months based on angkatan)
+  // Generate Sumbangan Komite window per siswa (36 months based on angkatan)
   interface TagihanRow {
     id: string       // NIS
     nama: string
@@ -131,7 +131,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     const angk = enr.siswa.angkatan
     const paid = paidSet.get(enr.siswa.id) ?? new Set()
 
-    // SPP window: Jul(angk) → Jun(angk+3)
+    // Sumbangan Komite window: Jul(angk) → Jun(angk+3)
     for (let grade = 0; grade < 3; grade++) {
       const gradeLabel = ['X.', 'XI.', 'XII.'][grade]!
       for (let i = 0; i < 12; i++) {
@@ -207,7 +207,7 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   // Excel format
   const wb = new ExcelJS.Workbook()
-  wb.creator = 'Sistem Pembayaran SPP SMAN 1 Denpasar'
+  wb.creator = 'Sistem Pembayaran Sumbangan Komite SMAN 1 Denpasar'
   const ws = wb.addWorksheet('Tagihan Belum Bayar', {
     views: [{ state: 'frozen', ySplit: 1 }],
   })

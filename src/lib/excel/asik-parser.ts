@@ -30,7 +30,7 @@ export interface ParsedRow {
   nama: string
   kelas: Grade | null
   rombelNomor: number | null
-  /** Periode SPP (bukan bulan transaksi). */
+  /** Periode Sumbangan Komite (bukan bulan transaksi). */
   periodYear: number | null
   periodMonth: number | null
   amount: number

@@ -47,6 +47,8 @@ const JENIS_LABEL: Record<JenisKeringanan, string> = {
   JUARA_UMUM: 'Juara Umum',
   BEASISWA: 'Beasiswa',
   KELUARGA_TIDAK_MAMPU: 'Keluarga Tidak Mampu',
+  PINDAHAN: 'Pindahan',
+  IJAZAH: 'Ijazah',
   LAINNYA: 'Lainnya',
 };
 
@@ -56,6 +58,8 @@ const JENIS_TONE: Record<JenisKeringanan, 'default' | 'secondary' | 'success' | 
   JUARA_UMUM: 'default',
   BEASISWA: 'secondary',
   KELUARGA_TIDAK_MAMPU: 'warning',
+  PINDAHAN: 'default',
+  IJAZAH: 'secondary',
   LAINNYA: 'outline',
 };
 
@@ -189,8 +193,8 @@ export default function KeringananPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Keringanan SPP"
-        description="Pencatatan bebas biaya / potongan SPP (JUARA, OSN, beasiswa, dll) per periode."
+        title="Keringanan Sumbangan Komite"
+        description="Pencatatan bebas biaya / potongan Sumbangan Komite (JUARA, OSN, beasiswa, dll) per periode."
         actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={() => setBulkOpen(true)}>

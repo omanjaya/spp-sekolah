@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db'
 import type { TagihanBpdParseResult } from '@/lib/excel/tagihan-bpd-parser'
 
 export type ReviewStatus = 'tetap' | 'dihapus_rekonsiliasi' | 'dihapus_manual'
+export type TagihanSumber = 'BPD' | 'MANUAL' | 'AUTO_GENERATE'
 
 export interface ReviewRow {
   nis: string
@@ -14,6 +15,7 @@ export interface ReviewRow {
   keterangan: string
   instansi: string
   alamat: string
+  sumber: TagihanSumber
   status: ReviewStatus
   alasan?: string
 }
@@ -37,13 +39,18 @@ export async function importTagihanBpd(
   fileSize: number,
   actor: { id: string; nama: string },
 ): Promise<ImportTagihanResult> {
-  // Delete all existing master rows (full replace strategy)
-  // We use a transaction to atomically swap the batch
+  // Strategi baru: hanya hapus & ganti row dengan sumber = 'BPD'.
+  // Row MANUAL / AUTO_GENERATE dipertahankan supaya user tidak kehilangan
+  // tagihan yang dibuat manual atau bulk-generated antar cycle import BPD.
+  //
+  // Konflik (NIS + periode) antara file BPD baru dan row MANUAL/AUTO
+  // yang sudah ada: BPD menang — row di-UPDATE dan sumber-nya di-upgrade
+  // ke 'BPD' (BPD sekarang punya = tidak perlu antrian manual lagi).
   const result = await prisma.$transaction(async (tx) => {
-    // Delete previous master data
-    await tx.tagihanBpdMaster.deleteMany()
+    // Hapus HANYA row sumber = BPD (bekas import BPD sebelumnya)
+    await tx.tagihanBpdMaster.deleteMany({ where: { sumber: 'BPD' } })
 
-    // Create new import batch
+    // Buat batch baru
     const batch = await tx.tagihanBpdImportBatch.create({
       data: {
         fileName,
@@ -57,32 +64,48 @@ export async function importTagihanBpd(
     let upserted = 0
     let skipped = 0
 
-    // Bulk insert rows
-    const insertData = parsed.rows.map((row) => ({
-      importBatchId: batch.id,
-      nis: row.nis,
-      nama: row.nama,
-      tahun: row.tahun,
-      bulan: row.bulan,
-      kelas: row.kelas,
-      jurusan: row.jurusan,
-      nominal: row.nominal,
-      keterangan: row.keterangan,
-      instansi: row.instansi,
-      alamat: row.alamat,
-    }))
-
-    if (insertData.length > 0) {
-      const inserted = await tx.tagihanBpdMaster.createMany({
-        data: insertData,
-        skipDuplicates: true,
-      })
-      upserted = inserted.count
-      skipped = parsed.rows.length - upserted
+    // Untuk setiap row di file: upsert. Kalau ada row MANUAL/AUTO_GENERATE
+    // dengan (nis, tahun, bulan) yang sama → di-update jadi BPD.
+    for (const row of parsed.rows) {
+      try {
+        await tx.tagihanBpdMaster.upsert({
+          where: {
+            nis_tahun_bulan: { nis: row.nis, tahun: row.tahun, bulan: row.bulan },
+          },
+          create: {
+            importBatchId: batch.id,
+            nis: row.nis,
+            nama: row.nama,
+            tahun: row.tahun,
+            bulan: row.bulan,
+            kelas: row.kelas,
+            jurusan: row.jurusan,
+            nominal: row.nominal,
+            keterangan: row.keterangan,
+            instansi: row.instansi,
+            alamat: row.alamat,
+            sumber: 'BPD',
+          },
+          update: {
+            importBatchId: batch.id,
+            nama: row.nama,
+            kelas: row.kelas,
+            jurusan: row.jurusan,
+            nominal: row.nominal,
+            keterangan: row.keterangan,
+            instansi: row.instansi,
+            alamat: row.alamat,
+            sumber: 'BPD',
+          },
+        })
+        upserted++
+      } catch {
+        skipped++
+      }
     }
 
     return { importBatchId: batch.id, totalRows: parsed.totalRows, upserted, skipped }
-  })
+  }, { timeout: 120_000 })
 
   return result
 }
@@ -195,6 +218,7 @@ export async function getTagihanReview(): Promise<TagihanReviewResult> {
       keterangan: master.keterangan,
       instansi: master.instansi,
       alamat: master.alamat,
+      sumber: master.sumber as TagihanSumber,
     }
 
     if (siswaId) {
@@ -252,4 +276,267 @@ export async function getLastImportBatch() {
     orderBy: { importedAt: 'desc' },
     include: { user: { select: { nama: true } } },
   })
+}
+
+// ─── Manual add (ad-hoc per NIS) ──────────────────────────────────────────────
+
+export interface AddManualTagihanInput {
+  nis: string
+  tahun: number
+  bulan: number
+  nominal: number
+  keterangan?: string
+}
+
+export interface AddManualTagihanResult {
+  created: boolean
+  reason?: string
+  nama?: string
+}
+
+/** Tambah 1 tagihan ad-hoc untuk NIS tertentu. Kelas/jurusan diambil dari
+ *  enrollment aktif siswa (atau '-' kalau tidak ada). */
+export async function addManualTagihan(
+  input: AddManualTagihanInput,
+  actor: { id: string },
+): Promise<AddManualTagihanResult> {
+  const siswa = await prisma.siswa.findUnique({
+    where: { nis: input.nis },
+    include: {
+      enrollments: {
+        include: {
+          rombel: { select: { kode: true, grade: true } },
+          tahunAjaran: { select: { isActive: true } },
+        },
+      },
+    },
+  })
+  if (!siswa) return { created: false, reason: `Siswa NIS ${input.nis} tidak ditemukan.` }
+
+  const existing = await prisma.tagihanBpdMaster.findUnique({
+    where: { nis_tahun_bulan: { nis: input.nis, tahun: input.tahun, bulan: input.bulan } },
+  })
+  if (existing) return { created: false, reason: 'Tagihan untuk periode ini sudah ada di master.', nama: siswa.nama }
+
+  const activeEnr = siswa.enrollments.find((e) => e.tahunAjaran?.isActive) ?? siswa.enrollments[0]
+  const kelas = activeEnr?.rombel?.grade ? `${activeEnr.rombel.grade}.` : '-'
+  const jurusan = activeEnr?.rombel?.kode
+    ? activeEnr.rombel.kode.replace(/^(X|XI|XII)\./, '') || '-'
+    : '-'
+
+  const batch = await prisma.tagihanBpdImportBatch.create({
+    data: {
+      fileName: `Manual add - ${input.nis} ${input.tahun}-${String(input.bulan).padStart(2, '0')}`,
+      fileSize: 0,
+      fileHash: 'manual_' + Date.now().toString(36) + '_' + input.nis,
+      importedBy: actor.id,
+      totalRows: 1,
+    },
+  })
+
+  await prisma.tagihanBpdMaster.create({
+    data: {
+      importBatchId: batch.id,
+      nis: input.nis,
+      nama: siswa.nama,
+      tahun: input.tahun,
+      bulan: input.bulan,
+      kelas,
+      jurusan,
+      nominal: input.nominal,
+      keterangan: input.keterangan?.trim() || '-',
+      sumber: 'MANUAL',
+    },
+  })
+
+  return { created: true, nama: siswa.nama }
+}
+
+// ─── Bulk generate dari tunggakan ─────────────────────────────────────────────
+
+export interface BulkGenerateInput {
+  /** Target periode tagihan. */
+  tahun: number
+  bulan: number
+  /** Filter angkatan (opsional). Tanpa filter = semua siswa AKTIF. */
+  angkatan?: number
+}
+
+export interface BulkGenerateResult {
+  totalEligible: number
+  alreadyInMaster: number
+  paidViaRekon: number
+  paidViaManual: number
+  hasKeringanan100: number
+  hasPelunasan: number
+  created: number
+}
+
+/** Generate tagihan master untuk SEMUA siswa AKTIF yang punya tunggakan pada
+ *  (tahun, bulan) tertentu — yaitu: tidak ada di master, tidak ada pembayaran
+ *  TERBAYAR, tidak ada keringanan 100%, tidak ada pelunasan covering. */
+export async function bulkGenerateFromTunggakan(
+  input: BulkGenerateInput,
+  actor: { id: string },
+): Promise<BulkGenerateResult> {
+  const { tahun, bulan, angkatan } = input
+
+  // 1. Resolve siswa AKTIF + enrollment aktif
+  const siswas = await prisma.siswa.findMany({
+    where: {
+      statusSiswa: 'AKTIF',
+      ...(angkatan ? { angkatan } : {}),
+      enrollments: { some: { tahunAjaran: { isActive: true } } },
+    },
+    include: {
+      enrollments: {
+        include: {
+          rombel: { select: { kode: true, grade: true } },
+          tahunAjaran: { select: { isActive: true, nominalSppDefault: true } },
+        },
+      },
+    },
+  })
+
+  const siswaIds = siswas.map((s) => s.id)
+  if (siswaIds.length === 0) {
+    return {
+      totalEligible: 0,
+      alreadyInMaster: 0,
+      paidViaRekon: 0,
+      paidViaManual: 0,
+      hasKeringanan100: 0,
+      hasPelunasan: 0,
+      created: 0,
+    }
+  }
+
+  // 2. Cek apa saja yang sudah covered untuk (tahun, bulan) tsb
+  const [existingMaster, pembayarans, keringananFull, pelunasans] = await Promise.all([
+    prisma.tagihanBpdMaster.findMany({
+      where: { tahun, bulan, nis: { in: siswas.map((s) => s.nis) } },
+      select: { nis: true },
+    }),
+    prisma.pembayaran.findMany({
+      where: {
+        siswaId: { in: siswaIds },
+        periodYear: tahun,
+        periodMonth: bulan,
+        statusBayar: 'TERBAYAR',
+      },
+      select: { siswaId: true, source: true },
+    }),
+    prisma.keringanan.findMany({
+      where: {
+        siswaId: { in: siswaIds },
+        periodYear: tahun,
+        periodMonth: bulan,
+        persentase: 100,
+      },
+      select: { siswaId: true },
+    }),
+    prisma.pelunasan.findMany({
+      where: { siswaId: { in: siswaIds } },
+      select: { siswaId: true, periodeMulai: true, periodeAkhir: true },
+    }),
+  ])
+
+  const existingMasterNis = new Set(existingMaster.map((m) => m.nis))
+  const paidRekonSiswaIds = new Set<string>()
+  const paidManualSiswaIds = new Set<string>()
+  for (const p of pembayarans) {
+    if (p.source === 'IMPORT_EXCEL' || p.source === 'PASTE_SPREADSHEET') {
+      paidRekonSiswaIds.add(p.siswaId)
+    } else {
+      paidManualSiswaIds.add(p.siswaId)
+    }
+  }
+  const keringanan100SiswaIds = new Set(keringananFull.map((k) => k.siswaId))
+
+  const targetNum = tahun * 100 + bulan
+  const pelunasanSiswaIds = new Set<string>()
+  for (const pl of pelunasans) {
+    const [sy, sm] = pl.periodeMulai.split('-').map(Number)
+    const [ey, em] = pl.periodeAkhir.split('-').map(Number)
+    if (!sy || !sm || !ey || !em) continue
+    const startNum = sy * 100 + sm
+    const endNum = ey * 100 + em
+    if (targetNum >= startNum && targetNum <= endNum) {
+      pelunasanSiswaIds.add(pl.siswaId)
+    }
+  }
+
+  // 3. Filter: siswa yang BELUM ditagih DAN belum covered
+  type Eligible = {
+    nis: string
+    nama: string
+    kelas: string
+    jurusan: string
+    nominal: number
+  }
+  const eligible: Eligible[] = []
+  for (const s of siswas) {
+    if (existingMasterNis.has(s.nis)) continue
+    if (paidRekonSiswaIds.has(s.id)) continue
+    if (paidManualSiswaIds.has(s.id)) continue
+    if (keringanan100SiswaIds.has(s.id)) continue
+    if (pelunasanSiswaIds.has(s.id)) continue
+
+    const activeEnr = s.enrollments.find((e) => e.tahunAjaran?.isActive) ?? s.enrollments[0]
+    const nominal = Number(activeEnr?.tahunAjaran?.nominalSppDefault ?? 350000)
+    const kelas = activeEnr?.rombel?.grade ? `${activeEnr.rombel.grade}.` : '-'
+    const jurusan = activeEnr?.rombel?.kode
+      ? activeEnr.rombel.kode.replace(/^(X|XI|XII)\./, '') || '-'
+      : '-'
+    eligible.push({ nis: s.nis, nama: s.nama, kelas, jurusan, nominal })
+  }
+
+  if (eligible.length === 0) {
+    return {
+      totalEligible: siswas.length,
+      alreadyInMaster: existingMaster.length,
+      paidViaRekon: paidRekonSiswaIds.size,
+      paidViaManual: paidManualSiswaIds.size,
+      hasKeringanan100: keringanan100SiswaIds.size,
+      hasPelunasan: pelunasanSiswaIds.size,
+      created: 0,
+    }
+  }
+
+  // 4. Create batch + insert tagihan
+  const batch = await prisma.tagihanBpdImportBatch.create({
+    data: {
+      fileName: `Bulk generate dari tunggakan ${tahun}-${String(bulan).padStart(2, '0')}${angkatan ? ` (angkatan ${angkatan})` : ''}`,
+      fileSize: 0,
+      fileHash: 'bulk_' + Date.now().toString(36) + '_' + tahun + bulan,
+      importedBy: actor.id,
+      totalRows: eligible.length,
+    },
+  })
+
+  await prisma.tagihanBpdMaster.createMany({
+    data: eligible.map((e) => ({
+      importBatchId: batch.id,
+      nis: e.nis,
+      nama: e.nama,
+      tahun,
+      bulan,
+      kelas: e.kelas,
+      jurusan: e.jurusan,
+      nominal: e.nominal,
+      keterangan: '-',
+      sumber: 'AUTO_GENERATE' as const,
+    })),
+    skipDuplicates: true,
+  })
+
+  return {
+    totalEligible: siswas.length,
+    alreadyInMaster: existingMaster.length,
+    paidViaRekon: paidRekonSiswaIds.size,
+    paidViaManual: paidManualSiswaIds.size,
+    hasKeringanan100: keringanan100SiswaIds.size,
+    hasPelunasan: pelunasanSiswaIds.size,
+    created: eligible.length,
+  }
 }

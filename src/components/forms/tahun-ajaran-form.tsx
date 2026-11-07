@@ -80,7 +80,7 @@ export function TahunAjaranForm({
       </div>
 
       <FormFieldWrapper
-        label="Nominal SPP Default"
+        label="Nominal Sumbangan Komite Default"
         required
         hint="Nominal per bulan untuk tahun ajaran ini."
         error={errors.nominalSppDefault?.message}

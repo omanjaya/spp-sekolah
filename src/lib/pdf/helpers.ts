@@ -27,6 +27,8 @@ export function shortWaiverLabel(status: MatrixCell['status']): string {
       return 'KTM'
     case 'PINDAHAN':
       return 'PINDAH'
+    case 'IJAZAH':
+      return 'IJAZAH'
     case 'LAINNYA':
       return 'BEBAS'
     default:

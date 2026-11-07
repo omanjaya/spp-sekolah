@@ -18,10 +18,10 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: 'Sistem Pembayaran SPP',
+    default: 'Sistem Pembayaran Sumbangan Komite',
     template: '%s | SMAN 1 Denpasar',
   },
-  description: 'Sistem manajemen pembayaran SPP dan Komite SMAN 1 Denpasar',
+  description: 'Sistem manajemen pembayaran Sumbangan Komite SMAN 1 Denpasar',
   robots: {
     index: false,
     follow: false,

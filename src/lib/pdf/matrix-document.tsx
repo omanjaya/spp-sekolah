@@ -40,8 +40,8 @@ export function MatrixDocument({ data, school, grades }: MatrixDocumentProps) {
     <Document
       title={`Daftar Pembayaran Komite ${data.angkatan}`}
       author={school.namaSekolah}
-      creator="Sistem Pembayaran SPP"
-      producer="Sistem Pembayaran SPP"
+      creator="Sistem Pembayaran Sumbangan Komite"
+      producer="Sistem Pembayaran Sumbangan Komite"
     >
       {data.rombels.flatMap((rombel) =>
         activeGrades.map((grade) => (

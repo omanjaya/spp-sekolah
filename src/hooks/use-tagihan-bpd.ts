@@ -150,3 +150,81 @@ export function useImportManual() {
     },
   })
 }
+
+// ─── Manual add (ad-hoc per NIS) ──────────────────────────────────────────────
+
+export interface AddManualTagihanInput {
+  nis: string
+  tahun: number
+  bulan: number
+  nominal: number
+  keterangan?: string
+}
+
+export interface AddManualTagihanResult {
+  created: boolean
+  reason?: string
+  nama?: string
+}
+
+export function useAddManualTagihan() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: AddManualTagihanInput) =>
+      apiFetch<AddManualTagihanResult>('/api/v1/master-data/tagihan-bpd/manual', {
+        method: 'POST',
+        body: input,
+      }),
+    onSuccess: (data) => {
+      if (data.created) {
+        toast.success(`Tagihan ditambahkan untuk ${data.nama ?? '(siswa)'}`)
+        void qc.invalidateQueries({ queryKey: ['tagihan-bpd-review'] })
+      } else {
+        toast.error(data.reason ?? 'Tagihan tidak ditambahkan.')
+      }
+    },
+    onError: (err) => {
+      const msg = err instanceof HttpError ? err.message : 'Gagal menambahkan tagihan.'
+      toast.error(msg)
+    },
+  })
+}
+
+// ─── Bulk generate dari tunggakan ─────────────────────────────────────────────
+
+export interface BulkGenerateInput {
+  tahun: number
+  bulan: number
+  angkatan?: number
+}
+
+export interface BulkGenerateResult {
+  totalEligible: number
+  alreadyInMaster: number
+  paidViaRekon: number
+  paidViaManual: number
+  hasKeringanan100: number
+  hasPelunasan: number
+  created: number
+}
+
+export function useBulkGenerateTagihan() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: BulkGenerateInput) =>
+      apiFetch<BulkGenerateResult>('/api/v1/master-data/tagihan-bpd/bulk-from-tunggakan', {
+        method: 'POST',
+        body: input,
+      }),
+    onSuccess: (data) => {
+      toast.success(
+        `Generate selesai: ${data.created} tagihan baru. (sudah di master: ${data.alreadyInMaster}, sudah bayar rekon: ${data.paidViaRekon}, manual: ${data.paidViaManual}, keringanan 100%: ${data.hasKeringanan100}, pelunasan: ${data.hasPelunasan})`,
+      )
+      void qc.invalidateQueries({ queryKey: ['tagihan-bpd-review'] })
+    },
+    onError: (err) => {
+      const msg = err instanceof HttpError ? err.message : 'Gagal generate tagihan.'
+      toast.error(msg)
+    },
+  })
+}

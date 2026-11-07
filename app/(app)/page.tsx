@@ -127,7 +127,7 @@ export default function DashboardPage() {
         </Card>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {isLoading || !summary ? (
           <>
             <SkeletonCard />
@@ -172,9 +172,10 @@ export default function DashboardPage() {
             <Link
               href="/rekonsiliasi?duplikat=true"
               aria-label="Lihat detail duplikat bayar"
-              className="group"
+              className="group block h-full"
             >
               <StatCard
+                className="h-full transition-shadow group-hover:shadow-md"
                 label="Duplikat Bayar"
                 value={numberFormatter.format(summary.duplikatBayar.transaksi)}
                 hint={

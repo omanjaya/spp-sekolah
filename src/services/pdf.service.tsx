@@ -48,6 +48,21 @@ async function getSchoolInfo(): Promise<SchoolInfo> {
 }
 
 /**
+ * Auto-derive grades yang relevan untuk satu kohort berdasarkan angkatan
+ * (tahun masuk kelas X) dan tanggal sekarang. Tahun ajaran berganti Juli.
+ *   angkatan 2025 + sekarang TA 2025/2026 → kelas X → 1 halaman
+ *   angkatan 2024 + sekarang TA 2025/2026 → kelas XI → 2 halaman (X + XI)
+ *   angkatan 2023 + sekarang TA 2025/2026 → kelas XII → 3 halaman
+ */
+export function deriveGradesForCohort(angkatan: number, now: Date = new Date()): Grade[] {
+  const currentTaYear = now.getUTCMonth() + 1 >= 7 ? now.getUTCFullYear() : now.getUTCFullYear() - 1
+  const yearsInSchool = currentTaYear - angkatan + 1
+  if (yearsInSchool <= 1) return ['X']
+  if (yearsInSchool === 2) return ['X', 'XI']
+  return ['X', 'XI', 'XII']
+}
+
+/**
  * Generate PDF for one rombel (+ its angkatan). Returns a PDF buffer.
  */
 export async function generatePdfForRombel(
@@ -57,9 +72,10 @@ export async function generatePdfForRombel(
   const angkatan = await resolveAngkatanForRombel(rombelId)
   const data = await buildMatrix({ angkatan, rombelId })
   const school = options.school ?? (await getSchoolInfo())
+  const grades = options.grades ?? deriveGradesForCohort(angkatan)
 
   const buffer = await renderToBuffer(
-    <MatrixDocument data={data} school={school} grades={options.grades} />,
+    <MatrixDocument data={data} school={school} grades={grades} />,
   )
   const rombel = data.rombels[0]
   const fileName = rombel
@@ -78,8 +94,9 @@ export async function renderMatrixPdf(
   grades?: Grade[],
 ): Promise<Uint8Array> {
   const s = school ?? (await getSchoolInfo())
+  const effectiveGrades = grades ?? deriveGradesForCohort(data.angkatan)
   const buffer = await renderToBuffer(
-    <MatrixDocument data={data} school={s} grades={grades} />,
+    <MatrixDocument data={data} school={s} grades={effectiveGrades} />,
   )
   return new Uint8Array(buffer)
 }

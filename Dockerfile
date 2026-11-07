@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # ─── Stage 1: deps (production dependencies only) ──────────────────────────
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 
@@ -11,7 +11,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 # ─── Stage 2: builder (full deps, compile Next.js) ─────────────────────────
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 
@@ -23,11 +23,16 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
+# Build-time secret required by src/lib/auth.ts guard. Not embedded in final
+# image — runner stage only COPYs built artifacts, not env.
+ARG NEXTAUTH_SECRET=build-time-placeholder-not-used-at-runtime
+ENV NEXTAUTH_SECRET=$NEXTAUTH_SECRET
+
 RUN npx prisma generate
 RUN npm run build
 
 # ─── Stage 3: runner (slim, non-root) ──────────────────────────────────────
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 RUN apk add --no-cache dumb-init openssl wget
 
 WORKDIR /app
@@ -53,8 +58,16 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma       ./node
 
 # Production node_modules (needed for prisma CLI invoked in entrypoint
 # and any runtime deps Next.js standalone doesn't bundle).
+# Note: copy the entire prisma package directory — the .bin symlink
+# dereferences on COPY and drops sibling wasm files if copied separately.
 COPY --from=deps    --chown=nextjs:nodejs /app/node_modules/prisma        ./node_modules/prisma
-COPY --from=deps    --chown=nextjs:nodejs /app/node_modules/.bin/prisma   ./node_modules/.bin/prisma
+RUN mkdir -p ./node_modules/.bin \
+ && ln -sf ../prisma/build/index.js ./node_modules/.bin/prisma \
+ && chown -h nextjs:nodejs ./node_modules/.bin/prisma
+
+# Folder upload (di-mount sebagai volume) harus milik user app, kalau tidak
+# upload bukti pembayaran gagal EACCES. Volume baru mewarisi owner ini.
+RUN mkdir -p /app/data/uploads/pembayaran && chown -R nextjs:nodejs /app/data
 
 # Entrypoint
 COPY --chown=nextjs:nodejs scripts/entrypoint.sh /app/entrypoint.sh

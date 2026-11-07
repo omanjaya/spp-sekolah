@@ -74,7 +74,7 @@ export function DataTable<TData, TValue>({
   return (
     <div className={cn('space-y-3', className)}>
       {toolbar?.(table)}
-      <div className="overflow-x-auto overflow-hidden rounded-md border border-slate-200 bg-white">
+      <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((group) => (
@@ -140,7 +140,7 @@ function DataTablePagination<TData>({ table }: { table: TanstackTable<TData> }) 
   const total = table.getPageCount();
   const rowCount = table.getFilteredRowModel().rows.length;
   return (
-    <div className="flex items-center justify-between text-xs text-slate-500">
+    <div className="flex flex-col gap-2 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
       <span>
         {rowCount === 0 ? 'Tidak ada hasil' : `${rowCount} baris`}
         {table.getIsSomeRowsSelected() || table.getIsAllRowsSelected()
@@ -154,7 +154,7 @@ function DataTablePagination<TData>({ table }: { table: TanstackTable<TData> }) 
         <Button
           variant="outline"
           size="sm"
-          className="h-8 w-8 p-0"
+          className="h-9 w-9 p-0"
           onClick={() => table.previousPage()}
           disabled={!table.getCanPreviousPage()}
           aria-label="Halaman sebelumnya"
@@ -164,7 +164,7 @@ function DataTablePagination<TData>({ table }: { table: TanstackTable<TData> }) 
         <Button
           variant="outline"
           size="sm"
-          className="h-8 w-8 p-0"
+          className="h-9 w-9 p-0"
           onClick={() => table.nextPage()}
           disabled={!table.getCanNextPage()}
           aria-label="Halaman berikutnya"

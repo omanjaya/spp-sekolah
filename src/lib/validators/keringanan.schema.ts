@@ -20,6 +20,8 @@ export const JENIS_KERINGANAN = [
   'JUARA_UMUM',
   'BEASISWA',
   'KELUARGA_TIDAK_MAMPU',
+  'PINDAHAN',
+  'IJAZAH',
   'LAINNYA',
 ] as const
 

@@ -1,7 +1,8 @@
 import ExcelJS from 'exceljs'
 import { NextResponse, type NextRequest } from 'next/server'
 
-import { requireAuth } from '@/lib/api-handler'
+import { requireRole } from '@/lib/api-handler'
+import { ROLES } from '@/core/constants'
 import { pembayaranFilterSchema } from '@/lib/validators/pembayaran.schema'
 import { pembayaranService } from '@/services/pembayaran.service'
 import { auditLogRepo } from '@/repositories/audit-log.repo'
@@ -25,7 +26,7 @@ function fmtDate(d: Date): string {
 }
 
 export async function GET(req: NextRequest): Promise<Response> {
-  const actor = await requireAuth()
+  const actor = await requireRole([ROLES.SUPER_ADMIN, ROLES.BENDAHARA, ROLES.TU])
   const params = pembayaranFilterSchema.parse(
     Object.fromEntries(req.nextUrl.searchParams.entries()),
   )
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const rows = await pembayaranService.listAll({ ...rest, limit: 100_000, page: 1 } as typeof params)
 
   const wb = new ExcelJS.Workbook()
-  wb.creator = 'Sistem Pembayaran SPP SMAN 1 Denpasar'
+  wb.creator = 'Sistem Pembayaran Sumbangan Komite SMAN 1 Denpasar'
   wb.created = new Date()
 
   const ws = wb.addWorksheet('Rekonsiliasi', {

@@ -64,3 +64,6 @@ logs
 # Misc
 .turbo
 .cache
+
+# File upload lokal (data siswa) — jangan masuk git / build context
+uploads/

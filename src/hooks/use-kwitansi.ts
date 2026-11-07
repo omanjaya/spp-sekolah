@@ -3,8 +3,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '@/lib/http';
-import type { KwitansiDto } from '@/services/kwitansi.service';
-import type { KwitansiCreateInput, KwitansiFilterInput } from '@/lib/validators/kwitansi.schema';
+import type { KwitansiDto, SiswaMonthStatusDto } from '@/services/kwitansi.service';
+import type {
+  KwitansiCreateInput,
+  KwitansiFilterInput,
+  KwitansiUpdateInput,
+} from '@/lib/validators/kwitansi.schema';
 
 export type KwitansiListMeta = {
   page: number;
@@ -63,6 +67,20 @@ export function useCreateKwitansi() {
       apiFetch<KwitansiDto>('/api/v1/kwitansi', { method: 'POST', body: input }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['kwitansi', 'list'] });
+      void qc.invalidateQueries({ queryKey: ['kwitansi', 'siswa-months'] });
+    },
+  });
+}
+
+export function useUpdateKwitansi() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: KwitansiUpdateInput }) =>
+      apiFetch<KwitansiDto>(`/api/v1/kwitansi/${id}`, { method: 'PATCH', body: input }),
+    onSuccess: (k) => {
+      void qc.invalidateQueries({ queryKey: ['kwitansi', 'list'] });
+      void qc.invalidateQueries({ queryKey: ['kwitansi', 'detail', k.id] });
+      void qc.invalidateQueries({ queryKey: ['kwitansi', 'siswa-months'] });
     },
   });
 }
@@ -74,7 +92,20 @@ export function useDeleteKwitansi() {
       apiFetch<{ message: string }>(`/api/v1/kwitansi/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['kwitansi', 'list'] });
+      void qc.invalidateQueries({ queryKey: ['kwitansi', 'siswa-months'] });
     },
+  });
+}
+
+/** Ambil status bulan (bayar/kwitansi) untuk siswa tertentu. */
+export function useSiswaMonths(siswaId: string | null) {
+  return useQuery({
+    queryKey: ['kwitansi', 'siswa-months', siswaId] as const,
+    queryFn: () =>
+      apiFetch<{ data: SiswaMonthStatusDto[] }>(`/api/v1/kwitansi/siswa/${siswaId}/months`).then(
+        (r) => r.data,
+      ),
+    enabled: !!siswaId,
   });
 }
 

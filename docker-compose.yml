@@ -7,6 +7,9 @@ services:
       dockerfile: Dockerfile
     image: spp-app:latest
     restart: unless-stopped
+    # Batasi memori supaya upload/restore besar tidak membuat seluruh VPS OOM
+    # (server ini juga menjalankan app lain). Pemakaian normal ±250 MB.
+    mem_limit: 1536m
     env_file:
       - .env
     environment:
@@ -22,8 +25,8 @@ services:
         condition: service_healthy
     networks:
       - internal
-    expose:
-      - "3000"
+    ports:
+      - "127.0.0.1:3737:3000"
     volumes:
       - spp_uploads:/app/data/uploads
 
@@ -42,25 +45,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 15s
-    networks:
-      - internal
-
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      DOMAIN: ${DOMAIN:?missing}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-      - caddy_logs:/var/log/caddy
-    depends_on:
-      - app
     networks:
       - internal
 
@@ -94,9 +78,6 @@ services:
 
 volumes:
   pg_data:
-  caddy_data:
-  caddy_config:
-  caddy_logs:
   spp_uploads:
 
 networks:

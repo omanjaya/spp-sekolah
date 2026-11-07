@@ -41,6 +41,7 @@ export type MatrixCellStatus =
   | 'BEASISWA'
   | 'KELUARGA_TIDAK_MAMPU'
   | 'PINDAHAN'
+  | 'IJAZAH'
   | 'LAINNYA'
 
 export interface MatrixCell {
@@ -439,6 +440,10 @@ export function cellDisplay(cell: MatrixCell | undefined): string {
       return 'BEASISWA'
     case 'KELUARGA_TIDAK_MAMPU':
       return 'KTM'
+    case 'PINDAHAN':
+      return 'PINDAH'
+    case 'IJAZAH':
+      return 'IJAZAH'
     case 'LAINNYA':
       return 'BEBAS'
     default:

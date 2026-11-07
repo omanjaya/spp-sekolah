@@ -33,6 +33,8 @@ const JENIS_LABEL: Record<JenisKeringanan, string> = {
   JUARA_UMUM: 'Juara Umum',
   BEASISWA: 'Beasiswa',
   KELUARGA_TIDAK_MAMPU: 'Keluarga Tidak Mampu',
+  PINDAHAN: 'Pindahan',
+  IJAZAH: 'Ijazah',
   LAINNYA: 'Lainnya',
 };
 

@@ -46,7 +46,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   const tetapRows = parsed.data.rows.filter((r) => r.status === 'tetap')
 
   const wb = new ExcelJS.Workbook()
-  wb.creator = 'Sistem Pembayaran SPP SMAN 1 Denpasar'
+  wb.creator = 'Sistem Pembayaran Sumbangan Komite SMAN 1 Denpasar'
   wb.created = new Date()
 
   const ws = wb.addWorksheet('Tagihan', {
