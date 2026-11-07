@@ -1,5 +1,7 @@
 # API Integrasi Bendahara — v1
 
+> **v1.1.0 (2026-11-07):** parameter `period_from` di `/payments` untuk menyaring bulan iuran.
+
 API baca-saja antarpeladen agar aplikasi bendahara (Go + React) dapat menyinkronkan
 pembayaran Sumbangan Komite (SPP), pembatalan, dan refund dari aplikasi SPP.
 
@@ -14,7 +16,7 @@ pembayaran Sumbangan Komite (SPP), pembatalan, dan refund dari aplikasi SPP.
 | Endpoint | Fungsi |
 |---|---|
 | `GET /info` | Identitas sekolah, versi API, mata uang, zona waktu, info token |
-| `GET /payments` | Feed pembayaran: pengambilan awal seluruh riwayat + perubahan berikutnya |
+| `GET /payments` | Feed pembayaran: pengambilan awal seluruh riwayat + perubahan berikutnya. Opsional `period_from=YYYY-MM` |
 | `GET /refunds` | Feed refund, termasuk refund tanpa pembayaran asal dan tombstone refund yang dibatalkan |
 | `GET /summary?from=&to=[&group_by=day\|month]` | Ringkasan penerimaan, refund, penerimaan bersih, dan jumlah transaksi |
 | `GET /openapi.json` | Spesifikasi OpenAPI |
@@ -94,6 +96,9 @@ curl -sS -H "Authorization: Bearer $SPP_TOKEN" "$SPP_API/info"
 # Pengambilan awal (halaman pertama), 500 per halaman
 curl -sS -H "Authorization: Bearer $SPP_TOKEN" "$SPP_API/payments?limit=500"
 
+# Hanya bulan iuran Januari 2025 ke atas (filter ikut tersimpan di next_cursor)
+curl -sS -H "Authorization: Bearer $SPP_TOKEN" "$SPP_API/payments?limit=500&period_from=2025-01"
+
 # Halaman berikutnya / sinkronisasi berikutnya
 curl -sS -H "Authorization: Bearer $SPP_TOKEN" "$SPP_API/payments?limit=500&cursor=eyJ2IjoxLCJ0Ijo..."
 
@@ -152,6 +157,15 @@ Jaminan dan aturannya:
 - `updated_since` (ISO 8601 **dengan** zona waktu) setara dengan `updated_at >= nilai`. Tidak boleh
   digabung dengan `cursor`. Untuk sinkronisasi rutin, gunakan cursor.
 - `limit` 1–1000, default 200. Cursor bersifat opak; jangan di-parse.
+- `period_from=YYYY-MM` (khusus `/payments`) hanya mengirim pembayaran dengan **bulan iuran**
+  (`allocations[].year/month`) ≥ nilai tersebut, misalnya `period_from=2025-01`. Dasarnya bulan
+  iuran, bukan tanggal bayar: tunggakan iuran 2024 yang dibayar tahun 2025 tidak ikut.
+  - Filter **tersimpan di `next_cursor`**. Halaman lanjutan dan sinkronisasi berikutnya cukup
+    membawa `cursor`; boleh juga mengirim ulang `period_from` yang sama.
+  - Cursor yang dipakai bersama `period_from` berbeda (atau cursor tanpa filter + `period_from`)
+    ditolak `400`. Untuk mengganti filter, mulai sinkronisasi baru tanpa cursor.
+  - Respons menyertakan `"filters": { "period_from": "2025-01" }` (atau `null`).
+  - Perubahan atas pembayaran dengan bulan iuran sebelum `period_from` tidak dikirim.
 - Pembayaran tidak pernah dihapus permanen oleh aplikasi SPP (relasi `Restrict`). Penghapusan
   diwakili oleh `status: CANCELLED`. Refund yang dihapus tetap dikirim sebagai tombstone
   `status: VOIDED`.

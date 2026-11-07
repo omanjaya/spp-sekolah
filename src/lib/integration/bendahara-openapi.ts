@@ -20,6 +20,17 @@ const feedParams = [
   { name: 'school_id', in: 'query', schema: { type: 'string' }, description: 'Opsional. Jika diisi harus sama dengan sekolah token, selain itu 403.' },
 ]
 
+const paymentParams = [
+  ...feedParams,
+  {
+    name: 'period_from',
+    in: 'query',
+    schema: { type: 'string', pattern: '^\\d{4}-(0[1-9]|1[0-2])$', example: '2025-01' },
+    description:
+      'Hanya pembayaran dengan bulan iuran (allocations.year/month) >= YYYY-MM. Ikut tersimpan di next_cursor: halaman lanjutan cukup membawa cursor. Cursor dengan period_from berbeda ditolak 400.',
+  },
+]
+
 const commonErrors = {
   '400': errorResponse('Parameter tidak valid (VALIDATION_ERROR / INVALID_CURSOR).'),
   '401': errorResponse('Token tidak ada, salah, atau sudah dicabut.'),
@@ -31,7 +42,7 @@ export const bendaharaOpenApi = {
   openapi: '3.1.0',
   info: {
     title: 'SPP SMAN 1 Denpasar — API Integrasi Bendahara',
-    version: '1.0.0',
+    version: '1.1.0',
     description:
       'API baca-saja antarpeladen untuk menyinkronkan pembayaran Sumbangan Komite (SPP), refund, dan pembatalan ke aplikasi bendahara.',
   },
@@ -49,7 +60,7 @@ export const bendaharaOpenApi = {
         summary: 'Feed pembayaran (pengambilan awal + perubahan inkremental)',
         description:
           'Diurutkan stabil berdasarkan (updated_at, payment_id). Tanpa cursor/updated_since = seluruh riwayat dari awal. Setiap perubahan (pembatalan, refund, koreksi) menaikkan updated_at sehingga pembayaran muncul lagi; upsert berdasarkan payment_id.',
-        parameters: feedParams,
+        parameters: paymentParams,
         responses: {
           '200': {
             description: 'OK',
@@ -57,8 +68,12 @@ export const bendaharaOpenApi = {
               'application/json': {
                 schema: {
                   type: 'object',
-                  required: ['data', 'pagination'],
-                  properties: { data: { type: 'array', items: { $ref: '#/components/schemas/Payment' } }, pagination: { $ref: '#/components/schemas/Pagination' } },
+                  required: ['data', 'pagination', 'filters'],
+                  properties: {
+                    data: { type: 'array', items: { $ref: '#/components/schemas/Payment' } },
+                    pagination: { $ref: '#/components/schemas/Pagination' },
+                    filters: { type: 'object', properties: { period_from: { type: ['string', 'null'], example: '2025-01' } } },
+                  },
                 },
               },
             },

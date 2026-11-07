@@ -22,7 +22,7 @@ import { IntegrationError, type IntegrationClient } from '@/lib/integration/bend
  *  - `createdAt`/`updatedAt`/`deletedAt`/`reviewedAt` adalah instan UTC asli.
  */
 
-export const API_VERSION = '1.0.0'
+export const API_VERSION = '1.1.0'
 export const SCHOOL_TIMEZONE = 'Asia/Makassar'
 export const SCHOOL_UTC_OFFSET = '+08:00'
 const OFFSET_MS = 8 * 60 * 60 * 1000
@@ -63,18 +63,24 @@ function periodKey(year: number, month: number): string {
 interface Position {
   t: Date
   id: string
+  /** Filter `period_from` (YYYY-MM) yang ikut terkunci di cursor /payments. */
+  pf?: string
 }
 
+const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/
+
 export function encodeCursor(p: Position): string {
-  return Buffer.from(JSON.stringify({ v: 1, t: p.t.toISOString(), id: p.id }), 'utf8').toString('base64url')
+  const body = { v: 1, t: p.t.toISOString(), id: p.id, ...(p.pf ? { pf: p.pf } : {}) }
+  return Buffer.from(JSON.stringify(body), 'utf8').toString('base64url')
 }
 
 export function decodeCursor(raw: string): Position {
   try {
-    const obj = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as { v?: number; t?: string; id?: string }
+    const obj = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as { v?: number; t?: string; id?: string; pf?: unknown }
     const t = new Date(obj.t ?? '')
     if (obj.v !== 1 || Number.isNaN(t.getTime()) || typeof obj.id !== 'string') throw new Error('bad')
-    return { t, id: obj.id }
+    if (obj.pf !== undefined && (typeof obj.pf !== 'string' || !PERIOD_RE.test(obj.pf))) throw new Error('bad')
+    return { t, id: obj.id, ...(obj.pf ? { pf: obj.pf as string } : {}) }
   } catch {
     throw new IntegrationError(400, 'INVALID_CURSOR', 'Cursor tidak valid.')
   }
@@ -88,21 +94,50 @@ const feedQuerySchema = z
       .datetime({ offset: true, message: 'Gunakan ISO 8601 dengan zona waktu, mis. 2026-11-01T00:00:00+08:00.' })
       .optional(),
     limit: z.coerce.number().int().min(1).max(MAX_LIMIT).default(DEFAULT_LIMIT),
+    period_from: z.string().regex(PERIOD_RE, 'Format period_from YYYY-MM, mis. 2025-01.').optional(),
   })
   .refine((q) => !(q.cursor && q.updated_since), {
     message: 'Gunakan salah satu: cursor atau updated_since.',
     path: ['cursor'],
   })
 
-function parseFeedQuery(params: URLSearchParams): { position: Position | null; limit: number } {
+function parseFeedQuery(
+  params: URLSearchParams,
+  opts: { periodFilter?: boolean } = {},
+): { position: Position | null; limit: number; periodFrom: string | null } {
   const q = feedQuerySchema.parse({
     cursor: params.get('cursor') ?? undefined,
     updated_since: params.get('updated_since') ?? undefined,
     limit: params.get('limit') ?? undefined,
+    period_from: params.get('period_from') ?? undefined,
   })
+  if (q.period_from && !opts.periodFilter) {
+    throw new IntegrationError(400, 'VALIDATION_ERROR', 'period_from hanya tersedia di /payments.')
+  }
+  const cursor = q.cursor ? decodeCursor(q.cursor) : null
+  // Filter terkunci di cursor: cursor tanpa period_from mewarisi filternya, dan
+  // mengganti filter di tengah sinkronisasi ditolak supaya tidak ada baris terlewat.
+  if (cursor && q.period_from && q.period_from !== (cursor.pf ?? null)) {
+    throw new IntegrationError(
+      400,
+      'VALIDATION_ERROR',
+      cursor.pf
+        ? `Cursor ini dibuat dengan period_from=${cursor.pf}. Hapus period_from atau mulai sinkronisasi baru tanpa cursor.`
+        : 'Cursor ini dibuat tanpa period_from. Mulai sinkronisasi baru tanpa cursor untuk memakai period_from.',
+    )
+  }
+  const periodFrom = opts.periodFilter ? (q.period_from ?? cursor?.pf ?? null) : null
   // updated_since = posisi (t, '') → updatedAt >= t.
-  const position = q.cursor ? decodeCursor(q.cursor) : q.updated_since ? { t: new Date(q.updated_since), id: '' } : null
-  return { position, limit: q.limit }
+  const base = cursor ?? (q.updated_since ? { t: new Date(q.updated_since), id: '' } : null)
+  const position = base ? { t: base.t, id: base.id, ...(periodFrom ? { pf: periodFrom } : {}) } : null
+  return { position, limit: q.limit, periodFrom }
+}
+
+/** Bulan iuran (periodYear, periodMonth) >= YYYY-MM. */
+function periodFromWhere(periodFrom: string | null): Prisma.PembayaranWhereInput {
+  if (!periodFrom) return {}
+  const [y, m] = periodFrom.split('-').map(Number) as [number, number]
+  return { OR: [{ periodYear: { gt: y } }, { periodYear: y, periodMonth: { gte: m } }] }
 }
 
 function settledUntil(): Date {
@@ -122,11 +157,17 @@ function keysetWhere(position: Position | null, upper: Date) {
   }
 }
 
-function pageMeta<T extends { updatedAt: Date; id: string }>(rows: T[], limit: number, position: Position | null, upper: Date) {
+function pageMeta<T extends { updatedAt: Date; id: string }>(
+  rows: T[],
+  limit: number,
+  position: Position | null,
+  upper: Date,
+  periodFrom: string | null = null,
+) {
   const hasMore = rows.length > limit
   const page = hasMore ? rows.slice(0, limit) : rows
   const last = page[page.length - 1]
-  const next = last ? { t: last.updatedAt, id: last.id } : position
+  const next = last ? { t: last.updatedAt, id: last.id, ...(periodFrom ? { pf: periodFrom } : {}) } : position
   return {
     page,
     pagination: {
@@ -384,15 +425,15 @@ export const integrasiBendaharaService = {
   },
 
   async payments(client: IntegrationClient, params: URLSearchParams) {
-    const { position, limit } = parseFeedQuery(params)
+    const { position, limit, periodFrom } = parseFeedQuery(params, { periodFilter: true })
     const upper = settledUntil()
     const rows = await prisma.pembayaran.findMany({
-      where: keysetWhere(position, upper),
+      where: { AND: [keysetWhere(position, upper), periodFromWhere(periodFrom)] },
       orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
       take: limit + 1,
       include: paymentInclude,
     })
-    const { page, pagination } = pageMeta(rows, limit, position, upper)
+    const { page, pagination } = pageMeta(rows, limit, position, upper, periodFrom)
     const cancelledWithoutRequest = page
       .filter((p) => p.statusBayar === 'DIBATALKAN' && p.cancelRequests.length === 0)
       .map((p) => p.id)
@@ -403,6 +444,7 @@ export const integrasiBendaharaService = {
     return {
       data: page.map((p) => toPayment(p, client.schoolId, enrollments, directCancels)),
       pagination,
+      filters: { period_from: periodFrom },
     }
   },
 

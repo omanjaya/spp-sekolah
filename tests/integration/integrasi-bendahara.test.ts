@@ -28,6 +28,7 @@ async function call(handler: Handler, path: string, token: string | null = TOKEN
   const headers: Record<string, string> = { 'x-forwarded-for': '203.0.113.7' }
   if (token) headers.authorization = `Bearer ${token}`
   const res = await handler(new NextRequest(`${BASE}${path}`, { headers }))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- body respons JSON dicek per field di tiap test
   return { status: res.status, headers: res.headers, body: (await res.json()) as any }
 }
 
@@ -197,7 +198,7 @@ describe('info', () => {
     expect(status).toBe(200)
     expect(headers.get('cache-control')).toBe('no-store')
     expect(body).toMatchObject({
-      api_version: '1.0.0',
+      api_version: '1.1.0',
       school: { school_id: SCHOOL, name: 'SMA Contoh Sintetis', npsn: SCHOOL },
       currency: 'IDR',
       timezone: 'Asia/Makassar',
@@ -414,5 +415,66 @@ describe('ringkasan', () => {
     expect(totalFromGroups.toFixed(2)).toBe(body.gross_receipts)
     expect((await call(getSummary, '/summary?from=2026-09-01&to=2026-08-01')).status).toBe(400)
     expect((await call(getSummary, '/summary?from=2026-08-01')).status).toBe(400)
+  })
+})
+
+describe('filter period_from (bulan iuran)', () => {
+  const ids = (body: { data: PaymentDto[] }) => body.data.map((p) => p.payment_id).sort()
+  const expected2026 = () =>
+    Object.entries(pay)
+      .filter(([k]) => !k.includes('_2025_'))
+      .map(([, id]) => id)
+      .sort()
+
+  it('hanya mengirim pembayaran dengan bulan iuran >= period_from', async () => {
+    const r = await call(getPayments, '/payments?period_from=2026-01&limit=1000')
+    expect(r.status).toBe(200)
+    expect(ids(r.body)).toEqual(expected2026())
+    expect(r.body.filters).toEqual({ period_from: '2026-01' })
+    for (const p of r.body.data as PaymentDto[]) {
+      expect(p.allocations[0]!.year * 100 + p.allocations[0]!.month).toBeGreaterThanOrEqual(202601)
+    }
+    // Batas inklusif pada bulan: 2025-08 masih ikut, 2025-09 tidak.
+    expect((await call(getPayments, '/payments?period_from=2025-08&limit=1000')).body.data).toHaveLength(Object.keys(pay).length)
+    expect(ids((await call(getPayments, '/payments?period_from=2025-09&limit=1000')).body)).toEqual(expected2026())
+    // Bulan iuran, bukan tanggal bayar: iuran Jul 2026 milik siswa C dibayar Agustus tetap ikut untuk 2026-07.
+    expect(ids((await call(getPayments, '/payments?period_from=2026-07&limit=1000')).body)).toEqual(expected2026())
+  })
+
+  it('filter terkunci di cursor selama pagination dan sinkronisasi berikutnya', async () => {
+    const seen: string[] = []
+    let r = await call(getPayments, '/payments?period_from=2026-01&limit=2')
+    seen.push(...ids(r.body))
+    while (r.body.pagination.has_more) {
+      // Halaman lanjutan cukup membawa cursor; period_from diwarisi dari cursor.
+      r = await call(getPayments, `/payments?limit=2&cursor=${r.body.pagination.next_cursor}`)
+      expect(r.body.filters).toEqual({ period_from: '2026-01' })
+      seen.push(...ids(r.body))
+    }
+    expect(seen.sort()).toEqual(expected2026())
+    const cursor = r.body.pagination.next_cursor as string
+
+    // Perubahan pembayaran lama (iuran 2025) tidak dikirim; perubahan iuran 2026 dikirim.
+    await sleep(5)
+    await prisma.pembayaran.update({ where: { id: pay.a_2025_08! }, data: { catatan: 'koreksi 2025' } })
+    await prisma.pembayaran.update({ where: { id: pay.b_2026_07! }, data: { catatan: 'koreksi 2026' } })
+    const inc = await call(getPayments, `/payments?cursor=${cursor}&period_from=2026-01`)
+    expect(inc.status).toBe(200)
+    expect(ids(inc.body)).toEqual([pay.b_2026_07])
+  })
+
+  it('menolak period_from yang tidak cocok dengan cursor, format salah, atau di /refunds', async () => {
+    const withPf = (await call(getPayments, '/payments?period_from=2026-01&limit=1')).body.pagination.next_cursor
+    const noPf = (await call(getPayments, '/payments?limit=1')).body.pagination.next_cursor
+    expect((await call(getPayments, `/payments?cursor=${withPf}&period_from=2025-01`)).status).toBe(400)
+    expect((await call(getPayments, `/payments?cursor=${noPf}&period_from=2026-01`)).status).toBe(400)
+    const noFilter = await call(getPayments, `/payments?cursor=${noPf}&limit=1000`)
+    expect(noFilter.body.filters).toEqual({ period_from: null })
+    for (const bad of ['2026-13', '2026-1', '2026', '2026-01-01']) {
+      const r = await call(getPayments, `/payments?period_from=${bad}`)
+      expect(r.status).toBe(400)
+      expect(r.body.error.code).toBe('VALIDATION_ERROR')
+    }
+    expect((await call(getRefunds, '/refunds?period_from=2026-01')).status).toBe(400)
   })
 })
